@@ -1,0 +1,69 @@
+.xml-download {
+    background: white;
+    border-radius: 15px;
+    padding: 30px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-top: 20px;
+  }
+  
+  .xml-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  
+  .xml-header h3 {
+    color: #333;
+    margin: 0;
+  }
+  
+  .download-btn {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+  
+  .download-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+  }
+  
+  .xml-preview h4 {
+    color: #333;
+    margin-bottom: 15px;
+  }
+  
+  .xml-content {
+    background: #1a1a1a;
+    color: #00ff00;
+    padding: 20px;
+    border-radius: 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  
+  /* Responsive design */
+  @media (max-width: 768px) {
+    .xml-header {
+      flex-direction: column;
+      gap: 15px;
+      text-align: center;
+    }
+    
+    .xml-content {
+      font-size: 0.8rem;
+      padding: 15px;
+    }
+  }
