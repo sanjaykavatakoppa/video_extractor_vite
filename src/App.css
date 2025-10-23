@@ -6,26 +6,27 @@
 
 body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #f8fafc;
   min-height: 100vh;
-  color: #333;
+  color: #334155;
   line-height: 1.6;
 }
 
 .App {
   min-height: 100vh;
   padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
 }
 
 .App-header {
-  background: rgba(255, 255, 255, 0.95);
-  color: #333;
-  border-radius: 20px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  background: white;
+  color: #1e293b;
+  border-radius: 16px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   margin-bottom: 30px;
   overflow: hidden;
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid #e2e8f0;
 }
 
 .header-content {
@@ -48,7 +49,6 @@ body {
   width: auto;
   height: 50px;
   object-fit: contain;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
   display: block;
 }
 
@@ -65,16 +65,13 @@ body {
   font-size: 2.2rem;
   margin: 0 0 8px 0;
   font-weight: 700;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #1e293b;
   line-height: 1.2;
 }
 
 .header-text p {
   font-size: 1.1rem;
-  color: #666;
+  color: #64748b;
   font-weight: 400;
   max-width: 500px;
   line-height: 1.5;
@@ -82,8 +79,7 @@ body {
 }
 
 .App-main {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
 }
 
 /* Mode Selector */
@@ -97,32 +93,35 @@ body {
 
 .mode-btn {
   padding: 12px 24px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  border: 2px solid #e2e8f0;
+  background: white;
+  color: #64748b;
   border-radius: 12px;
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .mode-btn.active {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.5);
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
 
 .mode-btn:hover:not(.active) {
-  background: rgba(255, 255, 255, 0.15);
+  background: #f8fafc;
+  border-color: #3b82f6;
+  color: #3b82f6;
   transform: translateY(-1px);
 }
 
 /* Error Message */
 .error-message {
-  background: rgba(255, 255, 255, 0.95);
+  background: #fef2f2;
   color: #dc2626;
   padding: 16px 20px;
   border-radius: 12px;
@@ -130,8 +129,21 @@ body {
   margin: 20px 0;
   text-align: center;
   font-weight: 500;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(10px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Content Layout */
+.content-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 25px;
+  margin-top: 25px;
+}
+
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 /* Responsive Design */

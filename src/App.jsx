@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import FolderUploader from './components/FolderUploader';
 import VideoUploader from './components/VideoUploader';
+import VideoInfo from './components/VideoInfo';
+import VideoTableView from './components/VideoTableView';
 import BatchProcessing from './components/BatchProcessing';
-import { processVideoBatch, createZipFile, downloadZip } from './utils/videoUtils';
+import XMLDownload from './components/XMLDownload';
+import { processVideoBatch, createZipFile, downloadZip, getVideoInfo } from './utils/videoUtils';
 import './App.css';
 
 const Logo = () => (
@@ -16,7 +19,7 @@ const Logo = () => (
 );
 
 function App() {
-  const [processingMode, setProcessingMode] = useState('single'); // 'single' or 'batch'
+  const [processingMode, setProcessingMode] = useState('single');
   const [batchProgress, setBatchProgress] = useState({
     current: 0,
     total: 0,
@@ -25,12 +28,32 @@ function App() {
   });
   const [batchResults, setBatchResults] = useState([]);
   const [batchErrors, setBatchErrors] = useState([]);
+  const [singleVideoInfo, setSingleVideoInfo] = useState(null);
+  const [selectedVideo, setSelectedVideo] = useState(null);
+  const [userInputs, setUserInputs] = useState({});
   const [loading, setLoading] = useState(false);
 
+  // Handle single file upload
+  const handleSingleVideoUpload = async (file) => {
+    setLoading(true);
+    try {
+      const info = await getVideoInfo(file);
+      setSingleVideoInfo(info);
+      setSelectedVideo(info);
+    } catch (error) {
+      console.error('Error processing single video:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle folder upload
   const handleFolderSelect = async (files) => {
     setLoading(true);
     setBatchResults([]);
     setBatchErrors([]);
+    setSingleVideoInfo(null);
+    setSelectedVideo(null);
     
     const progressCallback = (current, total, currentFile, status) => {
       setBatchProgress({
@@ -43,8 +66,13 @@ function App() {
 
     try {
       const { results, errors } = await processVideoBatch(files, progressCallback);
-      setBatchResults(results);
+      setBatchResults(results.map(r => r.videoInfo));
       setBatchErrors(errors);
+      
+      // Auto-select first video if available
+      if (results.length > 0) {
+        setSelectedVideo(results[0].videoInfo);
+      }
     } catch (error) {
       console.error('Batch processing error:', error);
     } finally {
@@ -57,12 +85,39 @@ function App() {
     if (batchResults.length === 0) return;
     
     try {
-      const zipContent = await createZipFile(batchResults);
+      const resultsWithXml = batchResults.map(videoInfo => ({
+        videoInfo,
+        xmlContent: generateXML(videoInfo),
+        filename: videoInfo.name.replace(/\.[^/.]+$/, "") + '_metadata.xml'
+      }));
+      
+      const zipContent = await createZipFile(resultsWithXml);
       downloadZip(zipContent, `video_metadata_${new Date().getTime()}.zip`);
     } catch (error) {
       console.error('Error creating ZIP file:', error);
       alert('Error creating ZIP file. Please try again.');
     }
+  };
+
+  const handleInputChange = (field, value) => {
+    setUserInputs(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleVideoSelect = (video) => {
+    setSelectedVideo(video);
+  };
+
+  // Get current videos based on mode
+  const getCurrentVideos = () => {
+    if (processingMode === 'single' && singleVideoInfo) {
+      return [singleVideoInfo];
+    } else if (processingMode === 'batch') {
+      return batchResults;
+    }
+    return [];
   };
 
   return (
@@ -90,12 +145,40 @@ function App() {
             className={`mode-btn ${processingMode === 'batch' ? 'active' : ''}`}
             onClick={() => setProcessingMode('batch')}
           >
-            📁 Batch Folder
+            📁 Select Video Contain Folder
           </button>
         </div>
 
         {processingMode === 'single' ? (
-          <VideoUploader />
+          <>
+            <VideoUploader 
+              onVideoUpload={handleSingleVideoUpload}
+              loading={loading}
+            />
+            
+            {singleVideoInfo && (
+              <div className="content-layout">
+                <div className="detail-section">
+                <VideoTableView 
+                  videos={[singleVideoInfo]}
+                  onVideoSelect={handleVideoSelect}
+                  selectedVideo={selectedVideo}
+                />
+                  <VideoInfo 
+                    videoInfo={singleVideoInfo}
+                    userInputs={userInputs}
+                    onInputChange={handleInputChange}
+                  />
+                  <XMLDownload 
+                    videoInfo={singleVideoInfo}
+                    userInputs={userInputs}
+                  />
+                </div>
+                
+             
+              </div>
+            )}
+          </>
         ) : (
           <>
             <FolderUploader 
@@ -105,10 +188,37 @@ function App() {
             
             <BatchProcessing 
               progress={batchProgress}
-              results={batchResults}
+              results={batchResults.map(videoInfo => ({ videoInfo }))}
               errors={batchErrors}
               onDownload={handleDownloadZip}
             />
+
+            {batchResults.length > 0 && (
+              <div className="content-layout">
+                 <VideoTableView 
+                  videos={batchResults}
+                  onVideoSelect={handleVideoSelect}
+                  selectedVideo={selectedVideo}
+                />
+                <div className="detail-section">
+                  {selectedVideo && (
+                    <>
+                      <VideoInfo 
+                        videoInfo={selectedVideo}
+                        userInputs={userInputs}
+                        onInputChange={handleInputChange}
+                      />
+                      <XMLDownload 
+                        videoInfo={selectedVideo}
+                        userInputs={userInputs}
+                      />
+                    </>
+                  )}
+                </div>
+                
+               
+              </div>
+            )}
           </>
         )}
       </main>
@@ -116,4 +226,26 @@ function App() {
   );
 }
 
-export default App;
+// Helper function to generate XML (moved from utils for simplicity)
+const generateXML = (videoInfo) => {
+  const parentClip = videoInfo.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+  
+  const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<record>
+  <TE_ParentClip>${parentClip}</TE_ParentClip>
+  <Filename>${videoInfo.filename}</Filename>
+  <Duration>${videoInfo.durationFormatted}</Duration>
+  <Resolution>${videoInfo.resolution.width} x ${videoInfo.resolution.height}</Resolution>
+  <FPS>${videoInfo.frameRate}</FPS>
+  <Primary_Language>${videoInfo.primaryLanguage}</Primary_Language>
+  <CountryOrigin>${videoInfo.countryOrigin}</CountryOrigin>
+  <CD_Category>${videoInfo.cdCategory}</CD_Category>
+  <Production_TextRef>${videoInfo.productionTextRef ? 'true' : 'false'}</Production_TextRef>
+  <Title>${videoInfo.title}</Title>
+  <Description>${videoInfo.description}</Description>
+</record>`;
+
+  return xmlContent;
+};
+
+export default App; 
