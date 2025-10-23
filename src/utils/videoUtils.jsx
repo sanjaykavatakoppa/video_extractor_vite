@@ -1,185 +1,291 @@
+import JSZip from 'jszip';
+
 export const calculateFrameRate = (video) => {
-    return new Promise((resolve) => {
-      // Method 1: Try to get FPS from video properties first
-      if (video.duration > 0) {
-        // Estimate FPS based on video duration and decoded frames
-        const estimatedFPS = video.webkitDecodedFrameCount / video.duration || 
-                            video.mozDecodedFrames / video.duration;
-        
-        if (estimatedFPS && estimatedFPS > 1 && estimatedFPS < 120) {
-          resolve(Math.round(estimatedFPS));
-          return;
-        }
-      }
-  
-      // Method 2: Use a more reliable frame counting approach
-      let frameCount = 0;
-      let startTime = null;
-      let animationId = null;
+  return new Promise((resolve) => {
+    if (video.duration > 0) {
+      const estimatedFPS = video.webkitDecodedFrameCount / video.duration || 
+                          video.mozDecodedFrames / video.duration;
       
-      const countFrames = (now) => {
-        if (!startTime) {
-          startTime = now;
-        }
-        
-        frameCount++;
-        
-        // Calculate for 2 seconds maximum
-        if (now - startTime < 2000) {
-          animationId = requestAnimationFrame(countFrames);
-        } else {
-          const durationInSeconds = (now - startTime) / 1000;
-          const calculatedFPS = frameCount / durationInSeconds;
-          
-          // Validate FPS result
-          if (calculatedFPS > 0.5 && calculatedFPS < 120) {
-            resolve(Math.round(calculatedFPS));
-          } else {
-            // Method 3: Fallback to common FPS based on resolution
-            resolve(estimateFrameRateFromResolution(video));
-          }
-          
-          cancelAnimationFrame(animationId);
-        }
-      };
-  
-      animationId = requestAnimationFrame(countFrames);
-  
-      // Safety timeout
-      setTimeout(() => {
-        if (animationId) {
-          cancelAnimationFrame(animationId);
-        }
-        resolve(estimateFrameRateFromResolution(video));
-      }, 3000);
-    });
-  };
-  
-  export const estimateFrameRateFromResolution = (video) => {
-    const width = video.videoWidth;
-    
-    // Common FPS values based on resolution and typical use cases
-    if (width >= 3840) {
-      return 24; // 4K videos often use 24fps (cinematic)
-    } else if (width >= 2560) {
-      return 30; // 2K commonly uses 30fps
-    } else if (width >= 1920) {
-      return 30; // Full HD commonly uses 30fps
-    } else if (width >= 1280) {
-      return 30; // HD ready typically 30fps
-    } else {
-      return 25; // SD and lower often 25fps (PAL) or 30fps (NTSC)
+      if (estimatedFPS && estimatedFPS > 1 && estimatedFPS < 120) {
+        resolve(Math.round(estimatedFPS));
+        return;
+      }
     }
+    resolve(estimateFrameRateFromResolution(video));
+  });
+};
+
+export const estimateFrameRateFromResolution = (video) => {
+  const width = video.videoWidth;
+  if (width >= 3840) return 24;
+  else if (width >= 2560) return 30;
+  else if (width >= 1920) return 30;
+  else if (width >= 1280) return 30;
+  else return 25;
+};
+
+export const detectLanguageFromFilename = (filename) => {
+  const name = filename.toLowerCase();
+  const languagePatterns = {
+    'english': ['eng', 'en', 'english', 'us', 'uk', 'american', 'british'],
+    'spanish': ['spa', 'es', 'spanish', 'español', 'mexican'],
+    'french': ['fre', 'fr', 'french', 'français'],
+    'german': ['ger', 'de', 'german', 'deutsch'],
+    'chinese': ['chi', 'zh', 'chinese', 'mandarin'],
+    'japanese': ['jpn', 'ja', 'japanese'],
+    'korean': ['kor', 'ko', 'korean'],
+    'hindi': ['hin', 'hi', 'hindi'],
+    'arabic': ['ara', 'ar', 'arabic'],
+    'russian': ['rus', 'ru', 'russian']
   };
+
+  for (const [language, patterns] of Object.entries(languagePatterns)) {
+    if (patterns.some(pattern => name.includes(pattern))) {
+      return language.charAt(0).toUpperCase() + language.slice(1);
+    }
+  }
+  return 'Unknown';
+};
+
+export const detectCountryFromVideoProperties = (video, filename) => {
+  const name = filename.toLowerCase();
+  const frameRate = video.frameRate || estimateFrameRateFromResolution(video);
   
-  export const getDetailedVideoInfo = async (file, userInputs = {}) => {
-    return new Promise((resolve, reject) => {
-      const video = document.createElement('video');
-      video.preload = 'metadata';
-      video.muted = true; // Mute to allow autoplay
-      video.playsInline = true;
+  const countryPatterns = {
+    'United States': ['us', 'usa', 'american', 'na'],
+    'United Kingdom': ['uk', 'british', 'england', 'gb'],
+    'Australia': ['au', 'australia', 'aussie'],
+    'Canada': ['ca', 'canada', 'canadian'],
+    'Germany': ['de', 'germany', 'german'],
+    'France': ['fr', 'france', 'french'],
+    'Japan': ['jp', 'japan', 'japanese'],
+    'China': ['cn', 'china', 'chinese'],
+    'India': ['in', 'india', 'indian'],
+    'South Korea': ['kr', 'korea', 'korean']
+  };
+
+  for (const [country, patterns] of Object.entries(countryPatterns)) {
+    if (patterns.some(pattern => name.includes(pattern))) {
+      return country;
+    }
+  }
+
+  if (Math.abs(frameRate - 25) < 1) {
+    return 'PAL Region (Europe/Australia/Asia)';
+  } else if (Math.abs(frameRate - 30) < 1 || Math.abs(frameRate - 29.97) < 1) {
+    return 'NTSC Region (North America/Japan)';
+  }
+
+  return 'Unknown';
+};
+
+export const detectCategoryFromVideo = (video, filename) => {
+  const name = filename.toLowerCase();
+  const duration = video.duration;
+  const width = video.videoWidth;
   
-      let frameRateCalculated = false;
-  
-      video.onloadedmetadata = async function() {
-        try {
-          // Play the video briefly to get frame data
-          video.currentTime = 0.1; // Start slightly ahead of 0
-          
-          const playPromise = video.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(() => {
-              // Autoplay failed, but we can still proceed
-              console.log('Autoplay prevented, continuing with FPS calculation...');
-            });
+  const categoryPatterns = {
+    'Emerging Objects and Cinematic Storytelling': ['cinematic', 'story', 'narrative', 'film', 'movie'],
+    'Nature and Wildlife': ['nature', 'wildlife', 'animal', 'wild', 'landscape'],
+    'Sports and Action': ['sport', 'action', 'athlete', 'game', 'competition'],
+    'People and Lifestyle': ['people', 'lifestyle', 'human', 'portrait', 'family'],
+    'Technology and Science': ['tech', 'technology', 'science', 'innovation', 'digital'],
+    'Arts and Culture': ['art', 'culture', 'creative', 'design', 'music']
+  };
+
+  for (const [category, patterns] of Object.entries(categoryPatterns)) {
+    if (patterns.some(pattern => name.includes(pattern))) {
+      return category;
+    }
+  }
+
+  if (duration < 30) return 'Short Form Content';
+  else if (width >= 3840) return 'High Resolution Cinematic';
+  else if (duration > 300) return 'Long Form Content';
+
+  return 'General Content';
+};
+
+export const detectOnScreenText = async (video) => {
+  return new Promise((resolve) => {
+    const hasText = video.duration > 10;
+    resolve(hasText);
+  });
+};
+
+export const getVideoInfo = async (file) => {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+
+    video.onloadedmetadata = async function() {
+      try {
+        const frameRate = await calculateFrameRate(video);
+        const autoDetectedLanguage = detectLanguageFromFilename(file.name);
+        const autoDetectedCountry = detectCountryFromVideoProperties(video, file.name);
+        const autoDetectedCategory = detectCategoryFromVideo(video, file.name);
+        const hasOnScreenText = await detectOnScreenText(video);
+
+        const info = {
+          name: file.name,
+          filename: file.name,
+          duration: video.duration,
+          durationFormatted: formatDuration(video.duration),
+          resolution: {
+            width: video.videoWidth,
+            height: video.videoHeight
+          },
+          frameRate: frameRate,
+          size: file.size,
+          type: file.type,
+          lastModified: file.lastModified,
+          primaryLanguage: autoDetectedLanguage,
+          countryOrigin: autoDetectedCountry,
+          cdCategory: autoDetectedCategory,
+          productionTextRef: hasOnScreenText,
+          title: file.name.replace(/\.[^/.]+$/, ""),
+          description: `Video file: ${file.name} (${formatFileSize(file.size)})`,
+          autoDetected: {
+            language: autoDetectedLanguage,
+            country: autoDetectedCountry,
+            category: autoDetectedCategory,
+            hasText: hasOnScreenText
           }
+        };
+        
+        URL.revokeObjectURL(video.src);
+        resolve(info);
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    video.onerror = function() {
+      URL.revokeObjectURL(video.src);
+      reject(new Error(`Error processing ${file.name}`));
+    };
+
+    video.src = URL.createObjectURL(file);
+  });
+};
+
+export const generateXML = (videoInfo) => {
+  const parentClip = videoInfo.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
   
-          const frameRate = await calculateFrameRate(video);
-          frameRateCalculated = true;
-  
-          const info = {
-            name: file.name,
-            filename: file.name,
-            duration: video.duration,
-            durationFormatted: formatDuration(video.duration),
-            resolution: {
-              width: video.videoWidth,
-              height: video.videoHeight
-            },
-            frameRate: frameRate,
-            size: file.size,
-            type: file.type,
-            lastModified: file.lastModified,
-            primaryLanguage: userInputs.primaryLanguage || '',
-            countryOrigin: userInputs.countryOrigin || '',
-            cdCategory: userInputs.cdCategory || '',
-            productionTextRef: userInputs.productionTextRef || false,
-            title: userInputs.title || '',
-            description: userInputs.description || ''
-          };
-          
-          // Clean up
-          video.pause();
-          video.currentTime = 0;
-          URL.revokeObjectURL(video.src);
-          resolve(info);
-        } catch (error) {
-          reject(error);
-        }
-      };
-  
-      video.onerror = function() {
-        if (!frameRateCalculated) {
-          URL.revokeObjectURL(video.src);
-          reject(new Error('Error loading video metadata'));
-        }
-      };
-  
-      // Set up error handling for play
-      video.addEventListener('canplay', function() {
-        // Video is ready to play
-      });
-  
-      video.src = URL.createObjectURL(file);
-    });
-  };
-  
-  const formatDuration = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-  
-  export const generateXML = (videoInfo) => {
-    const parentClip = videoInfo.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+  const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<record>
+  <TE_ParentClip>${parentClip}</TE_ParentClip>
+  <Filename>${videoInfo.filename}</Filename>
+  <Duration>${videoInfo.durationFormatted}</Duration>
+  <Resolution>${videoInfo.resolution.width} x ${videoInfo.resolution.height}</Resolution>
+  <FPS>${videoInfo.frameRate}</FPS>
+  <Primary_Language>${videoInfo.primaryLanguage}</Primary_Language>
+  <CountryOrigin>${videoInfo.countryOrigin}</CountryOrigin>
+  <CD_Category>${videoInfo.cdCategory}</CD_Category>
+  <Production_TextRef>${videoInfo.productionTextRef ? 'true' : 'false'}</Production_TextRef>
+  <Title>${videoInfo.title}</Title>
+  <Description>${videoInfo.description}</Description>
+</record>`;
+
+  return xmlContent;
+};
+
+export const downloadXML = (xmlContent, filename) => {
+  const blob = new Blob([xmlContent], { type: 'application/xml' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename.replace(/\.[^/.]+$/, "") + '_metadata.xml';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+// NEW: Batch processing functions
+export const processVideoBatch = async (files, onProgress) => {
+  const results = [];
+  const errors = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
     
-    const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
-  <record>
-    <TE_ParentClip>${parentClip}</TE_ParentClip>
-    <Filename>${videoInfo.filename}</Filename>
-    <Duration>${videoInfo.durationFormatted}</Duration>
-    <Resolution>${videoInfo.resolution.width} x ${videoInfo.resolution.height}</Resolution>
-    <FPS>${videoInfo.frameRate}</FPS>
-    <Primary_Language>${videoInfo.primaryLanguage}</Primary_Language>
-    <CountryOrigin>${videoInfo.countryOrigin}</CountryOrigin>
-    <CD_Category>${videoInfo.cdCategory}</CD_Category>
-    <Production_TextRef>${videoInfo.productionTextRef ? 'true' : 'false'}</Production_TextRef>
-    <Title>${videoInfo.title}</Title>
-    <Description>${videoInfo.description}</Description>
-  </record>`;
+    try {
+      onProgress?.(i + 1, files.length, file.name, 'processing');
+      const videoInfo = await getVideoInfo(file);
+      const xmlContent = generateXML(videoInfo);
+      
+      results.push({
+        file: file,
+        videoInfo: videoInfo,
+        xmlContent: xmlContent,
+        filename: file.name.replace(/\.[^/.]+$/, "") + '_metadata.xml'
+      });
+      
+      onProgress?.(i + 1, files.length, file.name, 'success');
+    } catch (error) {
+      errors.push({
+        file: file,
+        error: error.message
+      });
+      onProgress?.(i + 1, files.length, file.name, 'error');
+    }
+  }
+
+  return { results, errors };
+};
+
+export const createZipFile = async (results) => {
+  const zip = new JSZip();
   
-    return xmlContent;
+  // Add all XML files to zip
+  results.forEach(result => {
+    zip.file(result.filename, result.xmlContent);
+  });
+  
+  // Create a summary file
+  const summary = {
+    totalVideos: results.length,
+    processedAt: new Date().toISOString(),
+    videos: results.map(r => ({
+      filename: r.videoInfo.filename,
+      duration: r.videoInfo.durationFormatted,
+      resolution: `${r.videoInfo.resolution.width}x${r.videoInfo.resolution.height}`,
+      frameRate: r.videoInfo.frameRate
+    }))
   };
   
-  export const downloadXML = (xmlContent, filename) => {
-    const blob = new Blob([xmlContent], { type: 'application/xml' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename.replace(/\.[^/.]+$/, "") + '_metadata.xml';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
+  zip.file('processing_summary.json', JSON.stringify(summary, null, 2));
+  
+  // Generate zip file
+  const zipContent = await zip.generateAsync({ type: 'blob' });
+  return zipContent;
+};
+
+export const downloadZip = (zipContent, zipName = 'video_metadata_batch.zip') => {
+  const url = URL.createObjectURL(zipContent);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = zipName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+const formatDuration = (seconds) => {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+const formatFileSize = (bytes) => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};

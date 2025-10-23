@@ -1,0 +1,94 @@
+.folder-uploader {
+    margin-bottom: 30px;
+  }
+  
+  .folder-upload-area {
+    border: 3px dashed rgba(16, 185, 129, 0.5);
+    border-radius: 20px;
+    padding: 60px 30px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    color: white;
+  }
+  
+  .folder-upload-area:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(16, 185, 129, 0.8);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  }
+  
+  .folder-icon {
+    font-size: 4rem;
+    margin-bottom: 20px;
+    opacity: 0.9;
+  }
+  
+  .folder-upload-area h3 {
+    color: white;
+    margin-bottom: 12px;
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+  
+  .folder-upload-area p {
+    color: rgba(255, 255, 255, 0.9);
+    margin-bottom: 8px;
+    font-size: 1rem;
+  }
+  
+  .supported-formats {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.7);
+    margin-top: 12px;
+  }
+  
+  .feature-info {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.8);
+    font-style: italic;
+    margin-top: 8px;
+  }
+  
+  .loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+  
+  .spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-top: 4px solid white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  
+  /* Responsive */
+  @media (max-width: 768px) {
+    .folder-upload-area {
+      padding: 40px 20px;
+    }
+    
+    .folder-icon {
+      font-size: 3rem;
+    }
+    
+    .folder-upload-area h3 {
+      font-size: 1.3rem;
+    }
+    
+    .folder-upload-area p {
+      font-size: 0.95rem;
+    }
+  }

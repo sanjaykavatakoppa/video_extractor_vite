@@ -1,69 +1,133 @@
 .xml-download {
-    background: white;
-    border-radius: 15px;
-    padding: 30px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    margin-top: 20px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  padding: 30px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  margin-top: 20px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.xml-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.xml-header h3 {
+  color: #333;
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.download-btn {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  border: none;
+  padding: 14px 28px;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  white-space: nowrap;
+}
+
+.download-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+}
+
+.download-btn:active {
+  transform: translateY(0);
+}
+
+.xml-preview h4 {
+  color: #333;
+  margin-bottom: 15px;
+  font-size: 1.2rem;
+  font-weight: 600;
+  border-bottom: 2px solid #e9ecef;
+  padding-bottom: 8px;
+}
+
+.xml-content {
+  background: #1a1a1a;
+  color: #00ff00;
+  padding: 25px;
+  border-radius: 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #333;
+  line-height: 1.5;
+}
+
+/* Scrollbar for XML content */
+.xml-content::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.xml-content::-webkit-scrollbar-track {
+  background: #2d2d2d;
+  border-radius: 4px;
+}
+
+.xml-content::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 4px;
+}
+
+.xml-content::-webkit-scrollbar-thumb:hover {
+  background: #777;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .xml-download {
+    padding: 25px 20px;
   }
   
   .xml-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
+    flex-direction: column;
+    text-align: center;
+    gap: 15px;
   }
   
   .xml-header h3 {
-    color: #333;
-    margin: 0;
+    font-size: 1.3rem;
   }
   
   .download-btn {
-    background: linear-gradient(135deg, #10b981, #059669);
-    color: white;
-    border: none;
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-  }
-  
-  .download-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-  }
-  
-  .xml-preview h4 {
-    color: #333;
-    margin-bottom: 15px;
+    width: 100%;
+    padding: 12px 20px;
   }
   
   .xml-content {
-    background: #1a1a1a;
-    color: #00ff00;
     padding: 20px;
-    border-radius: 8px;
-    font-family: 'Courier New', monospace;
-    font-size: 0.9rem;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    max-height: 400px;
-    overflow-y: auto;
+    font-size: 0.85rem;
+    max-height: 350px;
+  }
+}
+
+@media (max-width: 480px) {
+  .xml-download {
+    padding: 20px 15px;
   }
   
-  /* Responsive design */
-  @media (max-width: 768px) {
-    .xml-header {
-      flex-direction: column;
-      gap: 15px;
-      text-align: center;
-    }
-    
-    .xml-content {
-      font-size: 0.8rem;
-      padding: 15px;
-    }
+  .xml-content {
+    padding: 15px;
+    font-size: 0.8rem;
+    max-height: 300px;
   }
+}
