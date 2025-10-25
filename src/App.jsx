@@ -88,11 +88,11 @@ function App() {
       const resultsWithXml = batchResults.map(videoInfo => ({
         videoInfo,
         xmlContent: generateXML(videoInfo),
-        filename: videoInfo.name.replace(/\.[^/.]+$/, "") + '_metadata.xml'
+        filename: videoInfo.name.replace(/\.[^/.]+$/, "") + '.xml'
       }));
       
       const zipContent = await createZipFile(resultsWithXml);
-      downloadZip(zipContent, `video_metadata_${new Date().getTime()}.zip`);
+      downloadZip(zipContent, `video_${new Date().getTime()}.zip`);
     } catch (error) {
       console.error('Error creating ZIP file:', error);
       alert('Error creating ZIP file. Please try again.');
@@ -139,13 +139,13 @@ function App() {
             className={`mode-btn ${processingMode === 'single' ? 'active' : ''}`}
             onClick={() => setProcessingMode('single')}
           >
-            📄 Single File
+            📄 Single video Details
           </button>
           <button 
             className={`mode-btn ${processingMode === 'batch' ? 'active' : ''}`}
             onClick={() => setProcessingMode('batch')}
           >
-            📁 Select Video Contain Folder
+            📁 Select Videos Containing Folder
           </button>
         </div>
 

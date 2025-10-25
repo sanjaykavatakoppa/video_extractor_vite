@@ -44,7 +44,7 @@ export const detectLanguageFromFilename = (filename) => {
       return language.charAt(0).toUpperCase() + language.slice(1);
     }
   }
-  return 'Unknown';
+  return ' ';
 };
 
 export const detectCountryFromVideoProperties = (video, filename) => {
@@ -76,7 +76,7 @@ export const detectCountryFromVideoProperties = (video, filename) => {
     return 'NTSC Region (North America/Japan)';
   }
 
-  return 'Unknown';
+  return ' ';
 };
 
 export const detectCategoryFromVideo = (video, filename) => {
