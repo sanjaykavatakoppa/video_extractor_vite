@@ -95,15 +95,12 @@ export const detectCategoryFromVideo = (video, filename) => {
 
   for (const [category, patterns] of Object.entries(categoryPatterns)) {
     if (patterns.some(pattern => name.includes(pattern))) {
-      return category;
+      return ' ';
     }
   }
 
-  if (duration < 30) return 'Short Form Content';
-  else if (width >= 3840) return 'High Resolution Cinematic';
-  else if (duration > 300) return 'Long Form Content';
 
-  return 'General Content';
+  return ' ';
 };
 
 export const detectOnScreenText = async (video) => {
@@ -145,8 +142,8 @@ export const getVideoInfo = async (file) => {
           countryOrigin: autoDetectedCountry,
           cdCategory: autoDetectedCategory,
           productionTextRef: hasOnScreenText,
-          title: file.name.replace(/\.[^/.]+$/, ""),
-          description: `Video file: ${file.name} (${formatFileSize(file.size)})`,
+          title: ' ',
+          description: ' ',
           autoDetected: {
             language: autoDetectedLanguage,
             country: autoDetectedCountry,
@@ -172,8 +169,11 @@ export const getVideoInfo = async (file) => {
 };
 
 export const generateXML = (videoInfo) => {
-  const parentClip = videoInfo.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
-  
+  const parentClip = videoInfo.name
+  .replace(/\.[^/.]+$/, "") // Remove file extension
+  .replace(/[^a-zA-Z]/g, '') // Remove all non-letter characters
+  .toUpperCase(); // Convert to uppercase
+
   const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <record>
   <TE_ParentClip>${parentClip}</TE_ParentClip>
@@ -183,10 +183,10 @@ export const generateXML = (videoInfo) => {
   <FPS>${videoInfo.frameRate}</FPS>
   <Primary_Language>${videoInfo.primaryLanguage}</Primary_Language>
   <CountryOrigin>${videoInfo.countryOrigin}</CountryOrigin>
-  <CD_Category>${videoInfo.cdCategory}</CD_Category>
-  <Production_TextRef>${videoInfo.productionTextRef ? 'true' : 'false'}</Production_TextRef>
-  <Title>${videoInfo.title}</Title>
-  <Description>${videoInfo.description}</Description>
+  <CD_Category>${videoInfo.cdCategory || ''}</CD_Category>
+  <Production_TextRef>' '</Production_TextRef>
+  <Title>${videoInfo.title || ''}</Title>
+  <Description>${videoInfo.description || ''}</Description>
 </record>`;
 
   return xmlContent;
@@ -197,7 +197,7 @@ export const downloadXML = (xmlContent, filename) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = filename.replace(/\.[^/.]+$/, "") + '_metadata.xml';
+  link.download = filename.replace(/\.[^/.]+$/, "") + '.xml';
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -221,7 +221,7 @@ export const processVideoBatch = async (files, onProgress) => {
         file: file,
         videoInfo: videoInfo,
         xmlContent: xmlContent,
-        filename: file.name.replace(/\.[^/.]+$/, "") + '_metadata.xml'
+        filename: file.name.replace(/\.[^/.]+$/, "") + '.xml'
       });
       
       onProgress?.(i + 1, files.length, file.name, 'success');

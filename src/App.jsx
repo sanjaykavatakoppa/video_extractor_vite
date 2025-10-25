@@ -228,7 +228,10 @@ function App() {
 
 // Helper function to generate XML (moved from utils for simplicity)
 const generateXML = (videoInfo) => {
-  const parentClip = videoInfo.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+  const parentClip = videoInfo.name
+  .replace(/\.[^/.]+$/, "") // Remove file extension
+  .replace(/[^a-zA-Z]/g, '') // Remove all non-letter characters
+  .toUpperCase(); // Convert to uppercase
   
   const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <record>
@@ -237,12 +240,12 @@ const generateXML = (videoInfo) => {
   <Duration>${videoInfo.durationFormatted}</Duration>
   <Resolution>${videoInfo.resolution.width} x ${videoInfo.resolution.height}</Resolution>
   <FPS>${videoInfo.frameRate}</FPS>
-  <Primary_Language>${videoInfo.primaryLanguage}</Primary_Language>
-  <CountryOrigin>${videoInfo.countryOrigin}</CountryOrigin>
-  <CD_Category>${videoInfo.cdCategory}</CD_Category>
-  <Production_TextRef>${videoInfo.productionTextRef ? 'true' : 'false'}</Production_TextRef>
-  <Title>${videoInfo.title}</Title>
-  <Description>${videoInfo.description}</Description>
+  <Primary_Language>${videoInfo.primaryLanguage || ''}</Primary_Language>
+  <CountryOrigin>${videoInfo.countryOrigin || ''}</CountryOrigin>
+  <CD_Category>${videoInfo.cdCategory || ''}</CD_Category>
+  <Production_TextRef> </Production_TextRef>
+  <Title>${videoInfo.title || ''}</Title>
+  <Description>${videoInfo.description || ''}</Description>
 </record>`;
 
   return xmlContent;
