@@ -138,12 +138,20 @@ def analyze_video(video_path):
     # Detect scenes
     log_progress("🔍 Detecting scenes...")
     try:
-        scenes = detect(str(video_path), ContentDetector(threshold=27.0))
+        scenes = detect(str(video_path), ContentDetector(threshold=15.0))  # Lower threshold for better detection
     except Exception as e:
         log_error(f"Scene detection failed: {str(e)}")
         return []
     
     log_progress(f"✅ Found {len(scenes)} scenes")
+    
+    # If no scenes detected, treat entire video as one scene
+    if len(scenes) == 0:
+        log_progress("ℹ️  No scene changes detected - treating as continuous video")
+        # Create artificial scene for entire video
+        from scenedetect.frame_timecode import FrameTimecode
+        scenes = [(FrameTimecode(0, fps), FrameTimecode(int(total_frames), fps))]
+        log_progress(f"✅ Created 1 scene from entire video ({duration:.1f}s)")
     
     # Analyze each scene for motion
     motion_clips = []
@@ -163,10 +171,13 @@ def analyze_video(video_path):
         end_frame = int(end_time.get_frames())
         motion_score = calculate_motion_score(str(video_path), start_frame, end_frame, fps)
         
-        # Skip low-motion scenes
-        if motion_score < MOTION_THRESHOLD:
+        # Skip low-motion scenes (but only if we have multiple scenes)
+        # For continuous videos (1 scene), include everything
+        if len(scenes) > 1 and motion_score < MOTION_THRESHOLD:
             log_progress(f"⏭️  Skipped (low motion: {motion_score:.2f} < {MOTION_THRESHOLD})")
             continue
+        elif motion_score < MOTION_THRESHOLD:
+            log_progress(f"ℹ️  Low motion ({motion_score:.2f}) but keeping (continuous video)")
         
         start_seconds = start_time.get_seconds()
         end_seconds = end_time.get_seconds()
