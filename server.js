@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import http from 'http';
+import ffmpeg from 'fluent-ffmpeg';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -318,6 +319,265 @@ app.post('/api/download-videos', async (req, res) => {
     res.end();
   }
 });
+
+// XML Generation endpoint
+app.post('/api/generate-xml', async (req, res) => {
+  try {
+    const { folderName } = req.body;
+    
+    if (!folderName) {
+      return res.status(400).json({ error: 'Folder name is required' });
+    }
+    
+    // Set up streaming response
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    
+    const VIDEOS_FOLDER = path.join(__dirname, 'public', folderName);
+    const API_RESPONSES_FOLDER = path.join(__dirname, 'public', 'api-responses');
+    
+    // Check if folder exists
+    if (!fs.existsSync(VIDEOS_FOLDER)) {
+      res.write(JSON.stringify({
+        type: 'error',
+        file: 'System',
+        error: `Folder not found: ${folderName}`
+      }) + '\n');
+      res.end();
+      return;
+    }
+    
+    // Get all video files
+    const videoFiles = fs.readdirSync(VIDEOS_FOLDER).filter(file => {
+      return /\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i.test(file);
+    });
+    
+    if (videoFiles.length === 0) {
+      res.write(JSON.stringify({
+        type: 'error',
+        file: 'System',
+        error: 'No video files found in folder'
+      }) + '\n');
+      res.end();
+      return;
+    }
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (let i = 0; i < videoFiles.length; i++) {
+      const videoFile = videoFiles[i];
+      
+      try {
+        const videoFilePath = path.join(VIDEOS_FOLDER, videoFile);
+        
+        // Send progress update
+        res.write(JSON.stringify({
+          type: 'progress',
+          current: i + 1,
+          total: videoFiles.length,
+          file: videoFile
+        }) + '\n');
+        
+        // Extract base filename
+        const baseFilename = extractBaseFilename(videoFile);
+        
+        // Get video metadata
+        const videoMetadata = await getVideoMetadataFromFile(videoFilePath);
+        
+        // Get Excel data
+        const excelData = getExcelDataForClip(baseFilename);
+        
+        // Get JSON metadata
+        const jsonMetadata = getJsonMetadataFromFile(baseFilename, API_RESPONSES_FOLDER);
+        
+        // Generate XML
+        const xmlContent = generateXMLContent(videoMetadata, excelData, jsonMetadata);
+        
+        // Save XML file
+        const xmlFileName = videoFile.replace(/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i, '.xml');
+        const xmlFilePath = path.join(VIDEOS_FOLDER, xmlFileName);
+        fs.writeFileSync(xmlFilePath, xmlContent, 'utf-8');
+        
+        successCount++;
+        
+        res.write(JSON.stringify({
+          type: 'success',
+          videoFile: videoFile,
+          xmlFile: xmlFileName,
+          title: excelData?.title || ''
+        }) + '\n');
+        
+      } catch (error) {
+        errorCount++;
+        res.write(JSON.stringify({
+          type: 'error',
+          file: videoFile,
+          error: error.message
+        }) + '\n');
+      }
+    }
+    
+    // Send completion
+    res.write(JSON.stringify({
+      type: 'complete',
+      successCount,
+      errorCount,
+      total: videoFiles.length
+    }) + '\n');
+    
+    res.end();
+    
+  } catch (error) {
+    res.write(JSON.stringify({
+      type: 'error',
+      file: 'System',
+      error: error.message
+    }) + '\n');
+    res.end();
+  }
+});
+
+// Helper function: Extract base filename
+function extractBaseFilename(videoFilename) {
+  const nameWithoutExt = videoFilename.replace(/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i, '');
+  const match = nameWithoutExt.match(/^(.+?)(?:_fc)?[-_]\d+$/);
+  return match ? match[1] : nameWithoutExt;
+}
+
+// Helper function: Get video metadata using ffprobe
+function getVideoMetadataFromFile(videoFilePath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(videoFilePath, (err, metadata) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      
+      try {
+        const videoStream = metadata.streams.find(s => s.codec_type === 'video');
+        if (!videoStream) {
+          reject(new Error('No video stream found'));
+          return;
+        }
+        
+        const filename = path.basename(videoFilePath);
+        const durationSeconds = parseFloat(metadata.format.duration || videoStream.duration || 0);
+        const duration = formatDurationTime(durationSeconds);
+        const width = videoStream.width || 0;
+        const height = videoStream.height || 0;
+        const resolution = `${width} x ${height}`;
+        
+        let fps = 0;
+        if (videoStream.r_frame_rate) {
+          const [num, den] = videoStream.r_frame_rate.split('/').map(Number);
+          fps = den ? (num / den).toFixed(2) : 0;
+        }
+        
+        resolve({
+          filename,
+          duration,
+          resolution,
+          fps: parseFloat(fps)
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+// Helper function: Format duration
+function formatDurationTime(seconds) {
+  if (!seconds || isNaN(seconds)) {
+    return '0:00:00';
+  }
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+// Helper function: Get Excel data
+function getExcelDataForClip(baseFilename) {
+  try {
+    const workbook = XLSX.readFile(EXCEL_FILE_PATH);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+    
+    const row = data.find(r => r['File Name'] === baseFilename);
+    
+    if (row) {
+      return {
+        teParentClip: row['File Name'] || '',
+        title: row['TITLE'] || '',
+        description: row['DESCRIPTION'] || ''
+      };
+    }
+    return null;
+  } catch (error) {
+    return null;
+  }
+}
+
+// Helper function: Get JSON metadata
+function getJsonMetadataFromFile(baseFilename, apiResponsesFolder) {
+  try {
+    const jsonPath = path.join(apiResponsesFolder, `${baseFilename}.json`);
+    
+    if (!fs.existsSync(jsonPath)) {
+      return { countryOrigin: '' };
+    }
+    
+    const jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    let countryOrigin = '';
+    
+    if (jsonData.list && jsonData.list[0] && jsonData.list[0].clipData) {
+      const countryField = jsonData.list[0].clipData.find(
+        f => f.name === 'Production.CountryOfOrigin'
+      );
+      if (countryField) {
+        countryOrigin = countryField.value || '';
+      }
+    } else if (jsonData.results && jsonData.results[0] && jsonData.results[0].fields) {
+      const countryField = jsonData.results[0].fields.find(
+        f => f.name === 'Production.CountryOfOrigin'
+      );
+      if (countryField) {
+        countryOrigin = countryField.value || '';
+      }
+    }
+    
+    return { countryOrigin };
+  } catch (error) {
+    return { countryOrigin: '' };
+  }
+}
+
+// Helper function: Generate XML content
+function generateXMLContent(videoMetadata, excelData, jsonMetadata) {
+  const { filename, duration, resolution, fps } = videoMetadata;
+  const { teParentClip = '', title = '', description = '' } = excelData || {};
+  const { countryOrigin = '' } = jsonMetadata;
+  
+  let xml = '<?xml version="1.0"?>\n';
+  xml += '<record>\n';
+  xml += `  <TE_ParentClip>${teParentClip}</TE_ParentClip>\n`;
+  xml += `  <Filename>${filename}</Filename>\n`;
+  xml += `  <Duration>${duration}</Duration>\n`;
+  xml += `  <Resolution>${resolution}</Resolution>\n`;
+  xml += `  <FPS>${fps}</FPS>\n`;
+  xml += `  <Primary_Language></Primary_Language>\n`;
+  xml += countryOrigin ? `  <CountryOrigin>${countryOrigin}</CountryOrigin>\n` : `  <CountryOrigin></CountryOrigin>\n`;
+  xml += `  <CD_Category>Emerging Objects and Cinematic Storytelling</CD_Category>\n`;
+  xml += `  <Production_TextRef>false</Production_TextRef>\n`;
+  xml += `  <Title>${title}</Title>\n`;
+  xml += `  <Description>${description}</Description>\n`;
+  xml += '</record>';
+  
+  return xml;
+}
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

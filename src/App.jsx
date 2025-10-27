@@ -6,6 +6,7 @@ import VideoTableView from './components/VideoTableView';
 import BatchProcessing from './components/BatchProcessing';
 import XMLDownload from './components/XMLDownload';
 import VideoDownloader from './components/VideoDownloader';
+import XmlGenerator from './components/XmlGenerator';
 import { processVideoBatch, createZipFile, downloadZip, getVideoInfo } from './utils/videoUtils';
 import './App.css';
 
@@ -154,9 +155,17 @@ function App() {
           >
             ⬇️ Download from Excel
           </button>
+          <button 
+            className={`mode-btn ${processingMode === 'xmlgenerate' ? 'active' : ''}`}
+            onClick={() => setProcessingMode('xmlgenerate')}
+          >
+            📄 Generate XML
+          </button>
         </div>
 
-        {processingMode === 'download' ? (
+        {processingMode === 'xmlgenerate' ? (
+          <XmlGenerator />
+        ) : processingMode === 'download' ? (
           <VideoDownloader />
         ) : processingMode === 'single' ? (
           <>
