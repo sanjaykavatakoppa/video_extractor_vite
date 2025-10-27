@@ -1,0 +1,234 @@
+{
+  "list": [
+    {
+      "id": 61893138,
+      "family": "screener",
+      "ingested": "2025-10-09T17:07:33Z",
+      "lockExpires": "2025-10-17T19:48:03Z",
+      "lockName": "Sven Peterson",
+      "modified": "2025-10-15T00:45:17Z",
+      "name": "1PWF92_G3W9BJKPNN",
+      "clipData": [
+        {
+          "id": 3046001841,
+          "clipId": 61893138,
+          "inherited": false,
+          "modified": "2025-10-09T17:08:46Z",
+          "name": "Description",
+          "value": "20250916_114955.mp4"
+        },
+        {
+          "id": 3046001843,
+          "clipId": 61893138,
+          "inherited": false,
+          "modified": "2025-10-15T00:45:17Z",
+          "name": "Title",
+          "value": "JP"
+        },
+        {
+          "id": 3046002798,
+          "clipId": 61893138,
+          "inherited": false,
+          "modified": "2025-10-09T17:08:46Z",
+          "name": "TWK.SupplierID",
+          "value": "31638097"
+        },
+        {
+          "id": 3046003346,
+          "clipId": 61893138,
+          "inherited": false,
+          "modified": "2025-10-09T17:09:35Z",
+          "name": "Format.FrameRate",
+          "value": "30 fps"
+        },
+        {
+          "id": 3046003361,
+          "clipId": 61893138,
+          "inherited": false,
+          "modified": "2025-10-09T17:09:35Z",
+          "name": "Format.FrameSize",
+          "value": "7680 x 4320"
+        }
+      ],
+      "renditions": [
+        {
+          "id": 136245097,
+          "clipId": 61893138,
+          "created": "2025-10-09T17:07:33Z",
+          "filesize": 320904340,
+          "format": "mp4",
+          "name": "20250916_114955.mp4",
+          "note": ",SourceReference=2025-10-09 17:07:16,",
+          "purpose": "m",
+          "size": "f",
+          "uri": "t3://S3ViaS3Signed:7e1a96f5-a6a6-4903-aa97-010c8475917e@s3-vdr-prowalktours-deferredmasters-or-1.s3.amazonaws.com/2025/JP/20250916_114955.mp4"
+        },
+        {
+          "id": 136245198,
+          "clipId": 61893138,
+          "created": "2025-10-09T17:10:25Z",
+          "filesize": 147040,
+          "format": "mov",
+          "name": "1PWF92_G3W9BJKPNN_fc.mov",
+          "purpose": "c",
+          "size": "f",
+          "uri": "t3://S3ViaS3Signed:bbc6e57c-acc1-4374-9fb0-8ac5001f48ce@s3-t3m-compsmez-or-1.s3.amazonaws.com/1PW/F92/1PWF92_G3W9BJKPNN_fc.mov"
+        },
+        {
+          "id": 136245218,
+          "clipId": 61893138,
+          "created": "2025-10-09T17:11:27Z",
+          "filesize": 7583,
+          "format": "jpg",
+          "name": "1PWF92_G3W9BJKPNN_lt.jpg",
+          "purpose": "t",
+          "size": "l",
+          "uri": "t3://S3ViaAkamai:f3427bd4-e75c-4e4d-9c16-7e4bb2ef8bf8@s3-t3m-previewpub-or-1.s3.amazonaws.com/1PW/F92/1PWF92_G3W9BJKPNN_lt.jpg"
+        }
+      ],
+      "priority": 5,
+      "supplierId": 31638097,
+      "supplier": {
+        "id": 31638097,
+        "address": "",
+        "city": "",
+        "contact": "",
+        "country": "",
+        "created": "2025-09-27T00:00:00Z",
+        "description": "",
+        "devName": "prowalk",
+        "email": "",
+        "markup": "",
+        "name": "Prowalk Tours",
+        "phone": "",
+        "rmPricing": false,
+        "state": "",
+        "supplierIds": "1PW",
+        "type": "LibraryManager",
+        "zipcode": "",
+        "data": [
+          {
+            "id": 48696,
+            "supplierId": 31638097,
+            "name": "UseStemmedThesaurus",
+            "value": "true"
+          },
+          {
+            "id": 48697,
+            "supplierId": 31638097,
+            "name": "AiWare.ImportAssets",
+            "value": "false"
+          },
+          {
+            "id": 48698,
+            "supplierId": 31638097,
+            "name": "AiWare.AllowJobs",
+            "value": "true"
+          },
+          {
+            "id": 48699,
+            "supplierId": 31638097,
+            "name": "Fee.Platform.Transcode",
+            "value": "0"
+          },
+          {
+            "id": 48700,
+            "supplierId": 31638097,
+            "name": "Fee.Platform.International",
+            "value": "0"
+          },
+          {
+            "id": 48701,
+            "supplierId": 31638097,
+            "name": "Fee.Platform.Offline",
+            "value": "0"
+          },
+          {
+            "id": 48702,
+            "supplierId": 31638097,
+            "name": "Fee.Platform.Storage",
+            "value": "0"
+          },
+          {
+            "id": 48703,
+            "supplierId": 31638097,
+            "name": "Status",
+            "value": "Active"
+          },
+          {
+            "id": 48704,
+            "supplierId": 31638097,
+            "name": "CategoryType",
+            "value": "Platform"
+          },
+          {
+            "id": 48705,
+            "supplierId": 31638097,
+            "name": "Licensing",
+            "value": "true"
+          },
+          {
+            "id": 48706,
+            "supplierId": 31638097,
+            "name": "Platform",
+            "value": "false"
+          },
+          {
+            "id": 48707,
+            "supplierId": 31638097,
+            "name": "ContributorSegmentation",
+            "value": "NA"
+          },
+          {
+            "id": 48708,
+            "supplierId": 31638097,
+            "name": "Exclusive",
+            "value": "false"
+          },
+          {
+            "id": 48709,
+            "supplierId": 31638097,
+            "name": "AutoRenew",
+            "value": "false"
+          },
+          {
+            "id": 48710,
+            "supplierId": 31638097,
+            "name": "Supplier.Tier",
+            "value": "5"
+          },
+          {
+            "id": 48711,
+            "supplierId": 31638097,
+            "name": "TemSearchSupplierRank",
+            "value": "5"
+          },
+          {
+            "id": 48712,
+            "supplierId": 31638097,
+            "name": "CorbisSearchSupplierRank",
+            "value": "5"
+          },
+          {
+            "id": 48713,
+            "supplierId": 31638097,
+            "name": "BBCSearchSupplierRank",
+            "value": "5"
+          },
+          {
+            "id": 48780,
+            "supplierId": 31638097,
+            "name": "AiWare.ApiKey",
+            "value": "62fe84:55a1ebf35f5b47b9979c5216840485fdc4e57a01b6a74f66a32eb43ca52d2fd6"
+          },
+          {
+            "id": 48781,
+            "supplierId": 31638097,
+            "name": "AiWare.OrganizationId",
+            "value": "48646"
+          }
+        ]
+      }
+    }
+  ]
+}

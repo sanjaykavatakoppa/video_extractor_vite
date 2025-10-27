@@ -5,6 +5,7 @@ import VideoInfo from './components/VideoInfo';
 import VideoTableView from './components/VideoTableView';
 import BatchProcessing from './components/BatchProcessing';
 import XMLDownload from './components/XMLDownload';
+import VideoDownloader from './components/VideoDownloader';
 import { processVideoBatch, createZipFile, downloadZip, getVideoInfo } from './utils/videoUtils';
 import './App.css';
 
@@ -147,9 +148,17 @@ function App() {
           >
             📁 Select Videos Containing Folder
           </button>
+          <button 
+            className={`mode-btn ${processingMode === 'download' ? 'active' : ''}`}
+            onClick={() => setProcessingMode('download')}
+          >
+            ⬇️ Download from Excel
+          </button>
         </div>
 
-        {processingMode === 'single' ? (
+        {processingMode === 'download' ? (
+          <VideoDownloader />
+        ) : processingMode === 'single' ? (
           <>
             <VideoUploader 
               onVideoUpload={handleSingleVideoUpload}

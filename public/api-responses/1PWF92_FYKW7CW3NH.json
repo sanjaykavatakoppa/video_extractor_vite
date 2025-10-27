@@ -1,0 +1,263 @@
+{
+  "list": [
+    {
+      "id": 61893069,
+      "family": "screener",
+      "ingested": "2025-10-09T17:00:36Z",
+      "liveDate": "2025-10-09T17:57:13Z",
+      "modified": "2025-10-21T22:16:43Z",
+      "name": "1PWF92_FYKW7CW3NH",
+      "clipData": [
+        {
+          "id": 3045994250,
+          "clipId": 61893069,
+          "inherited": false,
+          "modified": "2025-10-09T17:01:46Z",
+          "name": "Description",
+          "value": "GX040241.MP4"
+        },
+        {
+          "id": 3045994252,
+          "clipId": 61893069,
+          "inherited": false,
+          "modified": "2025-10-15T00:44:23Z",
+          "name": "Title",
+          "value": "7-17-21 Santorini, Greece Hike from Thera to Oia"
+        },
+        {
+          "id": 3045995468,
+          "clipId": 61893069,
+          "inherited": false,
+          "modified": "2025-10-09T17:01:46Z",
+          "name": "TWK.SupplierID",
+          "value": "31638097"
+        },
+        {
+          "id": 3045996086,
+          "clipId": 61893069,
+          "inherited": false,
+          "modified": "2025-10-09T17:02:16Z",
+          "name": "Format.FrameRate",
+          "value": "50 fps"
+        },
+        {
+          "id": 3045996104,
+          "clipId": 61893069,
+          "inherited": false,
+          "modified": "2025-10-09T17:02:16Z",
+          "name": "Format.FrameSize",
+          "value": "3840 x 2160"
+        },
+        {
+          "id": 3188941842,
+          "clipId": 61893069,
+          "inherited": false,
+          "modified": "2025-10-21T22:16:44Z",
+          "name": "Production.CountryOfOrigin",
+          "value": "Greece"
+        }
+      ],
+      "renditions": [
+        {
+          "id": 136244829,
+          "clipId": 61893069,
+          "created": "2025-10-09T17:00:36Z",
+          "filesize": 3727304641,
+          "format": "mp4",
+          "name": "GX040241.MP4",
+          "note": ",SourceReference=2025-10-09 17:00:03,",
+          "purpose": "m",
+          "size": "f",
+          "uri": "t3://S3ViaS3Signed:7e1a96f5-a6a6-4903-aa97-010c8475917e@s3-vdr-prowalktours-deferredmasters-or-1.s3.amazonaws.com/2021/7-17-21+Santorini%2C+Greece+Hike+from+Thera+to+Oia/Card+2/GX040241.MP4"
+        },
+        {
+          "id": 136246682,
+          "clipId": 61893069,
+          "created": "2025-10-09T17:47:40Z",
+          "filesize": 477045757,
+          "format": "mov",
+          "name": "1PWF92_FYKW7CW3NH_fc.mov",
+          "purpose": "c",
+          "size": "f",
+          "uri": "t3://S3ViaS3Signed:bbc6e57c-acc1-4374-9fb0-8ac5001f48ce@s3-t3m-compsmez-or-1.s3.amazonaws.com/1PW/F92/1PWF92_FYKW7CW3NH_fc.mov"
+        },
+        {
+          "id": 136246692,
+          "clipId": 61893069,
+          "created": "2025-10-09T17:48:00Z",
+          "filesize": 22330,
+          "format": "jpg",
+          "name": "1PWF92_FYKW7CW3NH_lt.jpg",
+          "purpose": "t",
+          "size": "l",
+          "uri": "t3://S3ViaAkamai:f3427bd4-e75c-4e4d-9c16-7e4bb2ef8bf8@s3-t3m-previewpub-or-1.s3.amazonaws.com/1PW/F92/1PWF92_FYKW7CW3NH_lt.jpg"
+        },
+        {
+          "id": 136246988,
+          "clipId": 61893069,
+          "created": "2025-10-09T17:56:38Z",
+          "filesize": 35931970,
+          "format": "f4v",
+          "name": "1PWF92_FYKW7CW3NH_xp.f4v",
+          "purpose": "p",
+          "size": "x",
+          "uri": "t3://S3ViaAkamaiStream:2e6960df-8601-4595-b0cc-aaf7330c2e8a@s3-t3m-previewpriv-or-1.s3.amazonaws.com/1PW/F92/1PWF92_FYKW7CW3NH_xp.f4v"
+        },
+        {
+          "id": 136247014,
+          "clipId": 61893069,
+          "created": "2025-10-09T17:57:13Z",
+          "filesize": 20351173,
+          "format": "f4v",
+          "name": "1PWF92_FYKW7CW3NH_lp.f4v",
+          "purpose": "p",
+          "size": "l",
+          "uri": "t3://S3ViaAkamaiStream:2e6960df-8601-4595-b0cc-aaf7330c2e8a@s3-t3m-previewpriv-or-1.s3.amazonaws.com/1PW/F92/1PWF92_FYKW7CW3NH_lp.f4v"
+        }
+      ],
+      "priority": 5,
+      "supplierId": 31638097,
+      "supplier": {
+        "id": 31638097,
+        "address": "",
+        "city": "",
+        "contact": "",
+        "country": "",
+        "created": "2025-09-27T00:00:00Z",
+        "description": "",
+        "devName": "prowalk",
+        "email": "",
+        "markup": "",
+        "name": "Prowalk Tours",
+        "phone": "",
+        "rmPricing": false,
+        "state": "",
+        "supplierIds": "1PW",
+        "type": "LibraryManager",
+        "zipcode": "",
+        "data": [
+          {
+            "id": 48696,
+            "supplierId": 31638097,
+            "name": "UseStemmedThesaurus",
+            "value": "true"
+          },
+          {
+            "id": 48697,
+            "supplierId": 31638097,
+            "name": "AiWare.ImportAssets",
+            "value": "false"
+          },
+          {
+            "id": 48698,
+            "supplierId": 31638097,
+            "name": "AiWare.AllowJobs",
+            "value": "true"
+          },
+          {
+            "id": 48699,
+            "supplierId": 31638097,
+            "name": "Fee.Platform.Transcode",
+            "value": "0"
+          },
+          {
+            "id": 48700,
+            "supplierId": 31638097,
+            "name": "Fee.Platform.International",
+            "value": "0"
+          },
+          {
+            "id": 48701,
+            "supplierId": 31638097,
+            "name": "Fee.Platform.Offline",
+            "value": "0"
+          },
+          {
+            "id": 48702,
+            "supplierId": 31638097,
+            "name": "Fee.Platform.Storage",
+            "value": "0"
+          },
+          {
+            "id": 48703,
+            "supplierId": 31638097,
+            "name": "Status",
+            "value": "Active"
+          },
+          {
+            "id": 48704,
+            "supplierId": 31638097,
+            "name": "CategoryType",
+            "value": "Platform"
+          },
+          {
+            "id": 48705,
+            "supplierId": 31638097,
+            "name": "Licensing",
+            "value": "true"
+          },
+          {
+            "id": 48706,
+            "supplierId": 31638097,
+            "name": "Platform",
+            "value": "false"
+          },
+          {
+            "id": 48707,
+            "supplierId": 31638097,
+            "name": "ContributorSegmentation",
+            "value": "NA"
+          },
+          {
+            "id": 48708,
+            "supplierId": 31638097,
+            "name": "Exclusive",
+            "value": "false"
+          },
+          {
+            "id": 48709,
+            "supplierId": 31638097,
+            "name": "AutoRenew",
+            "value": "false"
+          },
+          {
+            "id": 48710,
+            "supplierId": 31638097,
+            "name": "Supplier.Tier",
+            "value": "5"
+          },
+          {
+            "id": 48711,
+            "supplierId": 31638097,
+            "name": "TemSearchSupplierRank",
+            "value": "5"
+          },
+          {
+            "id": 48712,
+            "supplierId": 31638097,
+            "name": "CorbisSearchSupplierRank",
+            "value": "5"
+          },
+          {
+            "id": 48713,
+            "supplierId": 31638097,
+            "name": "BBCSearchSupplierRank",
+            "value": "5"
+          },
+          {
+            "id": 48780,
+            "supplierId": 31638097,
+            "name": "AiWare.ApiKey",
+            "value": "62fe84:55a1ebf35f5b47b9979c5216840485fdc4e57a01b6a74f66a32eb43ca52d2fd6"
+          },
+          {
+            "id": 48781,
+            "supplierId": 31638097,
+            "name": "AiWare.OrganizationId",
+            "value": "48646"
+          }
+        ]
+      }
+    }
+  ]
+}
