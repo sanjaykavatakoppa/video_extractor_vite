@@ -136,6 +136,79 @@ function downloadFile(url, outputPath, onProgress) {
   });
 }
 
+// Function to get Supplier ID from JSON file
+function getSupplierIdFromJson(fileName) {
+  try {
+    const API_RESPONSES_DIR = path.join(__dirname, 'public', 'api-responses');
+    const jsonFilePath = path.join(API_RESPONSES_DIR, `${fileName}.json`);
+    
+    if (!fs.existsSync(jsonFilePath)) {
+      console.log(`   ⚠️  JSON file not found: ${fileName}.json`);
+      return null;
+    }
+    
+    const jsonData = JSON.parse(fs.readFileSync(jsonFilePath, 'utf-8'));
+    
+    // Extract TWK.SupplierID from the JSON structure
+    if (jsonData.list && jsonData.list[0] && jsonData.list[0].clipData) {
+      const supplierField = jsonData.list[0].clipData.find(
+        item => item.name === 'TWK.SupplierID'
+      );
+      
+      if (supplierField && supplierField.value) {
+        return supplierField.value;
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error(`   ❌ Error reading JSON file for ${fileName}:`, error.message);
+    return null;
+  }
+}
+
+// Function to create/get supplier folder
+function getSupplierFolder(supplierId) {
+  const supplierFolder = path.join(OUTPUT_DIR, supplierId);
+  
+  if (!fs.existsSync(supplierFolder)) {
+    fs.mkdirSync(supplierFolder, { recursive: true });
+    console.log(`   ✨ Created new folder: ${supplierId}/`);
+  } else {
+    console.log(`   📂 Using existing folder: ${supplierId}/`);
+  }
+  
+  return supplierFolder;
+}
+
+// Function to extract base filename from video filename
+function extractBaseFileName(videoFileName) {
+  // Remove extension first
+  const nameWithoutExt = videoFileName.replace(/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i, '');
+  
+  // Match pattern: captures base name before any suffix
+  // Examples:
+  //   1PWF92_EL39N6KKU3_fc-0000002 → 1PWF92_EL39N6KKU3
+  //   1PWF92_EL39N6KKU3_fc         → 1PWF92_EL39N6KKU3
+  //   1PWF92_EL39N6KKU3-0000002    → 1PWF92_EL39N6KKU3
+  //   1PWF92_EL39N6KKU3_0000002    → 1PWF92_EL39N6KKU3
+  
+  // First, try to match with sequence number
+  const matchWithNumber = nameWithoutExt.match(/^(.+?)(?:_fc)?[-_]\d+$/);
+  if (matchWithNumber) {
+    return matchWithNumber[1];
+  }
+  
+  // If no sequence number, check if it ends with _fc and remove it
+  const matchWithFc = nameWithoutExt.match(/^(.+?)_fc$/);
+  if (matchWithFc) {
+    return matchWithFc[1];
+  }
+  
+  // Fallback: return as is
+  return nameWithoutExt;
+}
+
 // Function to update Excel file with download status
 function updateExcelDownloadStatus(rowIndex, status = 'Downloaded') {
   try {
@@ -225,7 +298,28 @@ app.post('/api/download-videos', async (req, res) => {
       }
       
       try {
-        // Fetch clip metadata
+        // Get File Name from Excel row to look up JSON
+        const excelFileName = row['File Name'] || row['FileName'] || row['file_name'];
+        
+        if (!excelFileName) {
+          console.log(`   ⚠️  No File Name in Excel row, will use default folder`);
+        } else {
+          console.log(`   📋 Excel File Name: ${excelFileName}`);
+        }
+        
+        // Get Supplier ID from JSON file using Excel File Name
+        const supplierId = excelFileName ? getSupplierIdFromJson(excelFileName) : null;
+        
+        if (!supplierId) {
+          console.log(`   ⚠️  No Supplier ID found, using default folder`);
+        } else {
+          console.log(`   📁 Found Supplier ID: ${supplierId}`);
+        }
+        
+        // Get or create supplier folder BEFORE fetching video
+        const targetFolder = supplierId ? getSupplierFolder(supplierId) : OUTPUT_DIR;
+        
+        // Now fetch clip metadata
         const apiData = await fetchClipData(clipId);
         
         if (!apiData.list || apiData.list.length === 0) {
@@ -240,12 +334,13 @@ app.post('/api/download-videos', async (req, res) => {
           throw new Error('No comp rendition found');
         }
         
+        const outputFileName = compRendition.name;
+        
         // Get signed download URL
         const downloadUrl = await getDownloadableUrl(clipId);
         
         // Download the file with real-time progress
-        const outputFileName = compRendition.name;
-        const outputPath = path.join(OUTPUT_DIR, outputFileName);
+        const outputPath = path.join(targetFolder, outputFileName);
         
         let lastProgressUpdate = 0;
         const progressCallback = (downloaded, total, percentage) => {
@@ -278,6 +373,7 @@ app.post('/api/download-videos', async (req, res) => {
             name: outputFileName,
             size: `${(downloadedSize / 1024 / 1024).toFixed(2)} MB`,
             clipId: clipId,
+            supplierFolder: supplierId || 'default',
             excelUpdated: updated
           }
         }) + '\n');
