@@ -6,6 +6,8 @@ import path from 'path';
 import https from 'https';
 import http from 'http';
 import ffmpeg from 'fluent-ffmpeg';
+import { spawn } from 'child_process';
+import multer from 'multer';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -14,6 +16,12 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = 3001;
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB max per file
+});
 
 app.use(cors());
 app.use(express.json());
@@ -419,18 +427,28 @@ app.post('/api/download-videos', async (req, res) => {
 // XML Generation endpoint
 app.post('/api/generate-xml', async (req, res) => {
   try {
-    const { folderName } = req.body;
+    const { folderName, apiResponsesFolder, excelFile } = req.body;
     
     if (!folderName) {
-      return res.status(400).json({ error: 'Folder name is required' });
+      return res.status(400).json({ error: 'Folder path is required' });
     }
     
     // Set up streaming response
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Transfer-Encoding', 'chunked');
     
-    const VIDEOS_FOLDER = path.join(__dirname, 'public', folderName);
-    const API_RESPONSES_FOLDER = path.join(__dirname, 'public', 'api-responses');
+    // Handle both absolute and relative paths
+    const VIDEOS_FOLDER = path.isAbsolute(folderName) 
+      ? folderName 
+      : path.join(__dirname, folderName);
+    
+    const API_RESPONSES_FOLDER = apiResponsesFolder && path.isAbsolute(apiResponsesFolder)
+      ? apiResponsesFolder
+      : path.join(__dirname, apiResponsesFolder || 'public/api-responses');
+    
+    const EXCEL_FILE = excelFile && path.isAbsolute(excelFile)
+      ? excelFile
+      : path.join(__dirname, excelFile || 'public/video.xlsx');
     
     // Check if folder exists
     if (!fs.existsSync(VIDEOS_FOLDER)) {
@@ -478,17 +496,14 @@ app.post('/api/generate-xml', async (req, res) => {
         // Extract base filename
         const baseFilename = extractBaseFilename(videoFile);
         
-        // Get video metadata
-        const videoMetadata = await getVideoMetadataFromFile(videoFilePath);
+        // Get video metadata from JSON (NO ffprobe!)
+        const videoMetadata = getVideoMetadataFromJson(baseFilename, videoFile, API_RESPONSES_FOLDER);
         
         // Get Excel data
-        const excelData = getExcelDataForClip(baseFilename);
-        
-        // Get JSON metadata
-        const jsonMetadata = getJsonMetadataFromFile(baseFilename, API_RESPONSES_FOLDER);
+        const excelData = getExcelDataForClip(baseFilename, EXCEL_FILE);
         
         // Generate XML
-        const xmlContent = generateXMLContent(videoMetadata, excelData, jsonMetadata);
+        const xmlContent = generateXMLContent(videoMetadata, excelData);
         
         // Save XML file
         const xmlFileName = videoFile.replace(/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i, '.xml');
@@ -501,7 +516,8 @@ app.post('/api/generate-xml', async (req, res) => {
           type: 'success',
           videoFile: videoFile,
           xmlFile: xmlFileName,
-          title: excelData?.title || ''
+          title: excelData?.title || '',
+          saved: true
         }) + '\n');
         
       } catch (error) {
@@ -541,63 +557,74 @@ function extractBaseFilename(videoFilename) {
   return match ? match[1] : nameWithoutExt;
 }
 
-// Helper function: Get video metadata using ffprobe
-function getVideoMetadataFromFile(videoFilePath) {
-  return new Promise((resolve, reject) => {
-    ffmpeg.ffprobe(videoFilePath, (err, metadata) => {
-      if (err) {
-        reject(err);
-        return;
+// Helper function: Get video metadata from JSON (NO ffprobe needed!)
+function getVideoMetadataFromJson(baseFilename, videoFileName, apiResponsesFolder) {
+  try {
+    const jsonPath = path.join(apiResponsesFolder, `${baseFilename}.json`);
+    
+    if (!fs.existsSync(jsonPath)) {
+      console.warn(`   ⚠️  JSON file not found: ${baseFilename}.json - using defaults`);
+      return {
+        filename: videoFileName,
+        duration: '0:00:00',
+        resolution: '1920 x 1080',
+        fps: 30.00,
+        countryOrigin: ''
+      };
+    }
+    
+    const jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    
+    let frameRate = '30.00';
+    let frameSize = '1920 x 1080';
+    let countryOrigin = '';
+    
+    if (jsonData.list && jsonData.list[0] && jsonData.list[0].clipData) {
+      const clipData = jsonData.list[0].clipData;
+      
+      // Get FrameRate
+      const fpsField = clipData.find(f => f.name === 'Format.FrameRate');
+      if (fpsField && fpsField.value) {
+        const fpsMatch = fpsField.value.match(/[\d.]+/);
+        frameRate = fpsMatch ? fpsMatch[0] : '30.00';
       }
       
-      try {
-        const videoStream = metadata.streams.find(s => s.codec_type === 'video');
-        if (!videoStream) {
-          reject(new Error('No video stream found'));
-          return;
-        }
-        
-        const filename = path.basename(videoFilePath);
-        const durationSeconds = parseFloat(metadata.format.duration || videoStream.duration || 0);
-        const duration = formatDurationTime(durationSeconds);
-        const width = videoStream.width || 0;
-        const height = videoStream.height || 0;
-        const resolution = `${width} x ${height}`;
-        
-        let fps = 0;
-        if (videoStream.r_frame_rate) {
-          const [num, den] = videoStream.r_frame_rate.split('/').map(Number);
-          fps = den ? (num / den).toFixed(2) : 0;
-        }
-        
-        resolve({
-          filename,
-          duration,
-          resolution,
-          fps: parseFloat(fps)
-        });
-      } catch (error) {
-        reject(error);
+      // Get FrameSize (Resolution)
+      const sizeField = clipData.find(f => f.name === 'Format.FrameSize');
+      if (sizeField && sizeField.value) {
+        frameSize = sizeField.value;
       }
-    });
-  });
-}
-
-// Helper function: Format duration
-function formatDurationTime(seconds) {
-  if (!seconds || isNaN(seconds)) {
-    return '0:00:00';
+      
+      // Get CountryOfOrigin
+      const countryField = clipData.find(f => f.name === 'Production.CountryOfOrigin');
+      if (countryField && countryField.value) {
+        countryOrigin = countryField.value;
+      }
+    }
+    
+    return {
+      filename: videoFileName,
+      duration: '0:00:00', // Placeholder (not available in JSON)
+      resolution: frameSize,
+      fps: parseFloat(frameRate),
+      countryOrigin: countryOrigin
+    };
+  } catch (error) {
+    console.error(`   ❌ Error reading JSON for ${baseFilename}:`, error.message);
+    return {
+      filename: videoFileName,
+      duration: '0:00:00',
+      resolution: '1920 x 1080',
+      fps: 30.00,
+      countryOrigin: ''
+    };
   }
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
 // Helper function: Get Excel data
-function getExcelDataForClip(baseFilename) {
+function getExcelDataForClip(baseFilename, excelFilePath = EXCEL_FILE_PATH) {
   try {
-    const workbook = XLSX.readFile(EXCEL_FILE_PATH);
+    const workbook = XLSX.readFile(excelFilePath);
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const data = XLSX.utils.sheet_to_json(worksheet);
@@ -617,45 +644,10 @@ function getExcelDataForClip(baseFilename) {
   }
 }
 
-// Helper function: Get JSON metadata
-function getJsonMetadataFromFile(baseFilename, apiResponsesFolder) {
-  try {
-    const jsonPath = path.join(apiResponsesFolder, `${baseFilename}.json`);
-    
-    if (!fs.existsSync(jsonPath)) {
-      return { countryOrigin: '' };
-    }
-    
-    const jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
-    let countryOrigin = '';
-    
-    if (jsonData.list && jsonData.list[0] && jsonData.list[0].clipData) {
-      const countryField = jsonData.list[0].clipData.find(
-        f => f.name === 'Production.CountryOfOrigin'
-      );
-      if (countryField) {
-        countryOrigin = countryField.value || '';
-      }
-    } else if (jsonData.results && jsonData.results[0] && jsonData.results[0].fields) {
-      const countryField = jsonData.results[0].fields.find(
-        f => f.name === 'Production.CountryOfOrigin'
-      );
-      if (countryField) {
-        countryOrigin = countryField.value || '';
-      }
-    }
-    
-    return { countryOrigin };
-  } catch (error) {
-    return { countryOrigin: '' };
-  }
-}
-
-// Helper function: Generate XML content
-function generateXMLContent(videoMetadata, excelData, jsonMetadata) {
-  const { filename, duration, resolution, fps } = videoMetadata;
+// Helper function: Generate XML content (Updated - NO ffprobe!)
+function generateXMLContent(videoMetadata, excelData) {
+  const { filename, duration, resolution, fps, countryOrigin = '' } = videoMetadata;
   const { teParentClip = '', title = '', description = '' } = excelData || {};
-  const { countryOrigin = '' } = jsonMetadata;
   
   let xml = '<?xml version="1.0"?>\n';
   xml += '<record>\n';
@@ -674,6 +666,230 @@ function generateXMLContent(videoMetadata, excelData, jsonMetadata) {
   
   return xml;
 }
+
+// XML Generation with file upload (for Windows compatibility - NO ffprobe!)
+app.post('/api/generate-xml-upload', upload.fields([
+  { name: 'videoFiles', maxCount: 1000 },
+  { name: 'apiResponseFiles', maxCount: 1000 },
+  { name: 'excelFile', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    // Set up streaming response
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    
+    const videoFiles = req.files['videoFiles'] || [];
+    const apiResponseFiles = req.files['apiResponseFiles'] || [];
+    const excelFile = req.files['excelFile'] ? req.files['excelFile'][0] : null;
+    
+    if (videoFiles.length === 0) {
+      res.write(JSON.stringify({
+        type: 'error',
+        file: 'System',
+        error: 'No video files uploaded'
+      }) + '\n');
+      res.end();
+      return;
+    }
+    
+    // Build JSON lookup map from uploaded files
+    const jsonMap = {};
+    apiResponseFiles.forEach(file => {
+      const fileName = path.basename(file.originalname, path.extname(file.originalname));
+      jsonMap[fileName] = JSON.parse(file.buffer.toString('utf-8'));
+    });
+    
+    // Parse Excel if provided
+    let excelData = [];
+    if (excelFile) {
+      const workbook = XLSX.read(excelFile.buffer);
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      excelData = XLSX.utils.sheet_to_json(worksheet);
+    }
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    // Process each video file
+    for (let i = 0; i < videoFiles.length; i++) {
+      const videoFile = videoFiles[i];
+      const videoFileName = path.basename(videoFile.originalname);
+      
+      // Skip non-video files
+      if (!/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i.test(videoFileName)) {
+        continue;
+      }
+      
+      try {
+        // Send progress
+        res.write(JSON.stringify({
+          type: 'progress',
+          current: i + 1,
+          total: videoFiles.length,
+          file: videoFileName
+        }) + '\n');
+        
+        // Extract base filename
+        const baseFilename = extractBaseFilename(videoFileName);
+        
+        // Get metadata from uploaded JSON
+        const jsonData = jsonMap[baseFilename];
+        let fps = 30.00;
+        let resolution = '1920 x 1080';
+        let countryOrigin = '';
+        
+        if (jsonData && jsonData.list && jsonData.list[0] && jsonData.list[0].clipData) {
+          const clipData = jsonData.list[0].clipData;
+          
+          const fpsField = clipData.find(f => f.name === 'Format.FrameRate');
+          if (fpsField && fpsField.value) {
+            const fpsMatch = fpsField.value.match(/[\d.]+/);
+            fps = fpsMatch ? parseFloat(fpsMatch[0]) : 30.00;
+          }
+          
+          const sizeField = clipData.find(f => f.name === 'Format.FrameSize');
+          if (sizeField && sizeField.value) {
+            resolution = sizeField.value;
+          }
+          
+          const countryField = clipData.find(f => f.name === 'Production.CountryOfOrigin');
+          if (countryField && countryField.value) {
+            countryOrigin = countryField.value;
+          }
+        }
+        
+        // Get Excel data
+        const excelRow = excelData.find(r => r['File Name'] === baseFilename);
+        const teParentClip = excelRow ? (excelRow['File Name'] || '') : '';
+        const title = excelRow ? (excelRow['TITLE'] || '') : '';
+        const description = excelRow ? (excelRow['DESCRIPTION'] || '') : '';
+        
+        // Generate XML
+        let xml = '<?xml version="1.0"?>\n';
+        xml += '<record>\n';
+        xml += `  <TE_ParentClip>${teParentClip}</TE_ParentClip>\n`;
+        xml += `  <Filename>${videoFileName}</Filename>\n`;
+        xml += `  <Duration>0:00:00</Duration>\n`;
+        xml += `  <Resolution>${resolution}</Resolution>\n`;
+        xml += `  <FPS>${fps}</FPS>\n`;
+        xml += `  <Primary_Language></Primary_Language>\n`;
+        xml += countryOrigin ? `  <CountryOrigin>${countryOrigin}</CountryOrigin>\n` : `  <CountryOrigin></CountryOrigin>\n`;
+        xml += `  <CD_Category>Emerging Objects and Cinematic Storytelling</CD_Category>\n`;
+        xml += `  <Production_TextRef>false</Production_TextRef>\n`;
+        xml += `  <Title>${title}</Title>\n`;
+        xml += `  <Description>${description}</Description>\n`;
+        xml += '</record>';
+        
+        successCount++;
+        
+        res.write(JSON.stringify({
+          type: 'success',
+          videoFile: videoFileName,
+          xmlFile: videoFileName.replace(/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i, '.xml'),
+          title: title
+        }) + '\n');
+        
+      } catch (error) {
+        errorCount++;
+        res.write(JSON.stringify({
+          type: 'error',
+          file: videoFileName,
+          error: error.message
+        }) + '\n');
+      }
+    }
+    
+    // Send completion
+    res.write(JSON.stringify({
+      type: 'complete',
+      successCount,
+      errorCount,
+      total: videoFiles.length
+    }) + '\n');
+    
+    res.end();
+    
+  } catch (error) {
+    res.write(JSON.stringify({
+      type: 'error',
+      file: 'System',
+      error: error.message
+    }) + '\n');
+    res.end();
+  }
+});
+
+// Motion Analysis endpoint
+app.post('/api/analyze-motion', async (req, res) => {
+  try {
+    const { videoPath, supplierFolder } = req.body;
+    
+    if (!videoPath) {
+      return res.status(400).json({ error: 'Video path is required' });
+    }
+    
+    // Construct full path
+    const fullVideoPath = path.join(__dirname, 'public', 'downloaded-videos', supplierFolder || '', videoPath);
+    
+    // Check if file exists
+    if (!fs.existsSync(fullVideoPath)) {
+      return res.status(404).json({ error: 'Video file not found' });
+    }
+    
+    // Set up streaming response
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    
+    // Spawn Python process
+    const pythonPath = 'python3';
+    const scriptPath = path.join(__dirname, 'analyze_motion.py');
+    const python = spawn(pythonPath, [scriptPath, fullVideoPath]);
+    
+    // Handle stdout (progress updates and results)
+    python.stdout.on('data', (data) => {
+      const output = data.toString();
+      // Each line is a JSON object
+      res.write(output);
+    });
+    
+    // Handle stderr (errors)
+    python.stderr.on('data', (data) => {
+      console.error(`Python Error: ${data}`);
+      res.write(JSON.stringify({
+        type: 'error',
+        message: data.toString()
+      }) + '\n');
+    });
+    
+    // Handle process completion
+    python.on('close', (code) => {
+      if (code !== 0) {
+        res.write(JSON.stringify({
+          type: 'error',
+          message: `Analysis process exited with code ${code}`
+        }) + '\n');
+      }
+      res.end();
+    });
+    
+    // Handle process errors
+    python.on('error', (error) => {
+      res.write(JSON.stringify({
+        type: 'error',
+        message: `Failed to start analysis: ${error.message}`
+      }) + '\n');
+      res.end();
+    });
+    
+  } catch (error) {
+    res.write(JSON.stringify({
+      type: 'error',
+      message: error.message
+    }) + '\n');
+    res.end();
+  }
+});
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

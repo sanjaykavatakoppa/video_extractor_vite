@@ -7,6 +7,7 @@ import BatchProcessing from './components/BatchProcessing';
 import XMLDownload from './components/XMLDownload';
 import VideoDownloader from './components/VideoDownloader';
 import XmlGenerator from './components/XmlGenerator';
+import MotionAnalyzer from './components/MotionAnalyzer';
 import { processVideoBatch, createZipFile, downloadZip, getVideoInfo } from './utils/videoUtils';
 import './App.css';
 
@@ -161,9 +162,17 @@ function App() {
           >
             📄 Generate XML
           </button>
+          <button 
+            className={`mode-btn ${processingMode === 'motion' ? 'active' : ''}`}
+            onClick={() => setProcessingMode('motion')}
+          >
+            🎬 Analyze Motion
+          </button>
         </div>
 
-        {processingMode === 'xmlgenerate' ? (
+        {processingMode === 'motion' ? (
+          <MotionAnalyzer />
+        ) : processingMode === 'xmlgenerate' ? (
           <XmlGenerator />
         ) : processingMode === 'download' ? (
           <VideoDownloader />
