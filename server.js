@@ -10,6 +10,7 @@ import { spawn } from 'child_process';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { promisify } from 'util';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -215,6 +216,39 @@ function extractBaseFileName(videoFileName) {
   
   // Fallback: return as is
   return nameWithoutExt;
+}
+
+// Helper function: Get video duration using ffprobe
+function getVideoDuration(videoPath) {
+  return new Promise((resolve) => {
+    ffmpeg.ffprobe(videoPath, (err, metadata) => {
+      if (err) {
+        console.warn(`   ⚠️  Could not read video duration (ffprobe not available): ${err.message}`);
+        resolve('0:00:00');
+        return;
+      }
+      
+      try {
+        const durationInSeconds = metadata.format.duration;
+        
+        if (!durationInSeconds || isNaN(durationInSeconds)) {
+          resolve('0:00:00');
+          return;
+        }
+        
+        // Convert to HH:MM:SS format (no milliseconds)
+        const hours = Math.floor(durationInSeconds / 3600);
+        const minutes = Math.floor((durationInSeconds % 3600) / 60);
+        const seconds = Math.floor(durationInSeconds % 60);
+        
+        const formatted = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        resolve(formatted);
+      } catch (error) {
+        console.warn(`   ⚠️  Error formatting duration: ${error.message}`);
+        resolve('0:00:00');
+      }
+    });
+  });
 }
 
 // Function to update Excel file with download status
@@ -496,8 +530,8 @@ app.post('/api/generate-xml', async (req, res) => {
         // Extract base filename
         const baseFilename = extractBaseFilename(videoFile);
         
-        // Get video metadata from JSON (NO ffprobe!)
-        const videoMetadata = getVideoMetadataFromJson(baseFilename, videoFile, API_RESPONSES_FOLDER);
+        // Get video metadata from JSON (with duration from video file!)
+        const videoMetadata = await getVideoMetadataFromJson(baseFilename, videoFile, API_RESPONSES_FOLDER, videoFilePath);
         
         // Get Excel data
         const excelData = getExcelDataForClip(baseFilename, EXCEL_FILE);
@@ -558,15 +592,21 @@ function extractBaseFilename(videoFilename) {
 }
 
 // Helper function: Get video metadata from JSON (NO ffprobe needed!)
-function getVideoMetadataFromJson(baseFilename, videoFileName, apiResponsesFolder) {
+async function getVideoMetadataFromJson(baseFilename, videoFileName, apiResponsesFolder, videoPath = null) {
   try {
     const jsonPath = path.join(apiResponsesFolder, `${baseFilename}.json`);
+    
+    // Read duration from video file if path provided
+    let duration = '0:00:00';
+    if (videoPath && fs.existsSync(videoPath)) {
+      duration = await getVideoDuration(videoPath);
+    }
     
     if (!fs.existsSync(jsonPath)) {
       console.warn(`   ⚠️  JSON file not found: ${baseFilename}.json - using defaults`);
       return {
         filename: videoFileName,
-        duration: '0:00:00',
+        duration: duration,
         resolution: '1920 x 1080',
         fps: 30.00,
         countryOrigin: ''
@@ -604,16 +644,21 @@ function getVideoMetadataFromJson(baseFilename, videoFileName, apiResponsesFolde
     
     return {
       filename: videoFileName,
-      duration: '0:00:00', // Placeholder (not available in JSON)
+      duration: duration,
       resolution: frameSize,
       fps: parseFloat(frameRate),
       countryOrigin: countryOrigin
     };
   } catch (error) {
     console.error(`   ❌ Error reading JSON for ${baseFilename}:`, error.message);
+    // Try to get duration even on error
+    let duration = '0:00:00';
+    if (videoPath && fs.existsSync(videoPath)) {
+      duration = await getVideoDuration(videoPath);
+    }
     return {
       filename: videoFileName,
-      duration: '0:00:00',
+      duration: duration,
       resolution: '1920 x 1080',
       fps: 30.00,
       countryOrigin: ''
