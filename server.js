@@ -11,6 +11,7 @@ import multer from 'multer';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { promisify } from 'util';
+import { getVideoDurationInSeconds } from 'get-video-duration';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -218,37 +219,27 @@ function extractBaseFileName(videoFileName) {
   return nameWithoutExt;
 }
 
-// Helper function: Get video duration using ffprobe
-function getVideoDuration(videoPath) {
-  return new Promise((resolve) => {
-    ffmpeg.ffprobe(videoPath, (err, metadata) => {
-      if (err) {
-        console.warn(`   ⚠️  Could not read video duration (ffprobe not available): ${err.message}`);
-        resolve('0:00:00');
-        return;
-      }
-      
-      try {
-        const durationInSeconds = metadata.format.duration;
-        
-        if (!durationInSeconds || isNaN(durationInSeconds)) {
-          resolve('0:00:00');
-          return;
-        }
-        
-        // Convert to HH:MM:SS format (no milliseconds)
-        const hours = Math.floor(durationInSeconds / 3600);
-        const minutes = Math.floor((durationInSeconds % 3600) / 60);
-        const seconds = Math.floor(durationInSeconds % 60);
-        
-        const formatted = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-        resolve(formatted);
-      } catch (error) {
-        console.warn(`   ⚠️  Error formatting duration: ${error.message}`);
-        resolve('0:00:00');
-      }
-    });
-  });
+// Helper function: Get video duration (NO FFmpeg required!)
+async function getVideoDuration(videoPath) {
+  try {
+    // Use get-video-duration package (pure JavaScript, no FFmpeg needed!)
+    const durationInSeconds = await getVideoDurationInSeconds(videoPath);
+    
+    if (!durationInSeconds || isNaN(durationInSeconds)) {
+      return '0:00:00';
+    }
+    
+    // Convert to HH:MM:SS format (no milliseconds)
+    const hours = Math.floor(durationInSeconds / 3600);
+    const minutes = Math.floor((durationInSeconds % 3600) / 60);
+    const seconds = Math.floor(durationInSeconds % 60);
+    
+    const formatted = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return formatted;
+  } catch (error) {
+    console.warn(`   ⚠️  Could not read video duration: ${error.message}`);
+    return '0:00:00';
+  }
 }
 
 // Function to update Excel file with download status
