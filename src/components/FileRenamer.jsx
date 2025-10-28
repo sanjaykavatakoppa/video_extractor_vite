@@ -3,6 +3,7 @@ import './FileRenamer.css';
 
 function FileRenamer() {
   const [folderPath, setFolderPath] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [isRenaming, setIsRenaming] = useState(false);
   const [serverOnline, setServerOnline] = useState(false);
   const [progress, setProgress] = useState({
@@ -30,9 +31,22 @@ function FileRenamer() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleFolderSelect = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length > 0) {
+      setSelectedFiles(files);
+      const firstFile = files[0];
+      const fullPath = firstFile.webkitRelativePath || firstFile.name;
+      const folderName = fullPath.substring(0, fullPath.lastIndexOf('/')) || fullPath;
+      setFolderPath('public/' + folderName);
+    }
+  };
+
   const handleRename = async () => {
-    if (!folderPath.trim()) {
-      alert('Please enter a folder path');
+    const finalPath = folderPath || 'public/Videos';
+    
+    if (!finalPath.trim()) {
+      alert('Please select a folder');
       return;
     }
 
@@ -47,7 +61,7 @@ function FileRenamer() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ folderPath })
+        body: JSON.stringify({ folderPath: finalPath })
       });
 
       if (!response.ok) {
@@ -123,25 +137,46 @@ function FileRenamer() {
       <div className="rename-input-section">
         <div className="input-group">
           <label>
-            📁 Folder Path *
-            <span className="label-hint">(Absolute or relative path)</span>
+            📁 Video Folder *
+            <span className="label-hint">(Select from public/ directory or leave empty for default)</span>
           </label>
-          <input
-            type="text"
-            value={folderPath}
-            onChange={(e) => setFolderPath(e.target.value)}
-            placeholder="e.g., public/Videos or /full/path/to/folder"
-            disabled={isRenaming}
-            className="folder-input"
-          />
+          <div className="folder-selector">
+            <input
+              id="folderInput"
+              type="file"
+              webkitdirectory=""
+              directory=""
+              multiple
+              onChange={handleFolderSelect}
+              disabled={isRenaming}
+              style={{ display: 'none' }}
+            />
+            <label htmlFor="folderInput" className="select-folder-btn">
+              📂 Select Folder
+            </label>
+            {folderPath ? (
+              <div className="selected-folder-info">
+                <span className="folder-icon">✅</span>
+                <span className="folder-path">{folderPath}</span>
+                {selectedFiles.length > 0 && (
+                  <span className="file-count">({selectedFiles.length} files)</span>
+                )}
+              </div>
+            ) : (
+              <div className="default-folder-info">
+                <span className="folder-icon">ℹ️</span>
+                <span className="folder-path">Will use: public/Videos</span>
+              </div>
+            )}
+          </div>
           <small className="input-help">
-            Enter path to folder containing video files to rename
+            Select folder from public/ directory (or leave empty for default: public/Videos)
           </small>
         </div>
 
         <button
           onClick={handleRename}
-          disabled={isRenaming || !serverOnline || !folderPath.trim()}
+          disabled={isRenaming || !serverOnline}
           className={`rename-button ${isRenaming ? 'renaming' : ''}`}
         >
           {isRenaming ? (
