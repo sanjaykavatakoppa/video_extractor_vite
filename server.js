@@ -856,6 +856,164 @@ app.post('/api/generate-xml-upload', upload.fields([
   }
 });
 
+// File Rename endpoint
+app.post('/api/rename-files', async (req, res) => {
+  try {
+    const { folderPath } = req.body;
+    
+    if (!folderPath) {
+      return res.status(400).json({ error: 'Folder path is required' });
+    }
+    
+    // Set up streaming response
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    
+    // Handle both absolute and relative paths
+    const fullFolderPath = path.isAbsolute(folderPath)
+      ? folderPath
+      : path.join(__dirname, folderPath);
+    
+    // Check if folder exists
+    if (!fs.existsSync(fullFolderPath)) {
+      res.write(JSON.stringify({
+        type: 'error',
+        file: 'System',
+        error: `Folder not found: ${folderPath}`
+      }) + '\n');
+      res.end();
+      return;
+    }
+    
+    // Get all video files
+    const videoFiles = fs.readdirSync(fullFolderPath).filter(file => {
+      return /\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i.test(file);
+    });
+    
+    if (videoFiles.length === 0) {
+      res.write(JSON.stringify({
+        type: 'error',
+        file: 'System',
+        error: 'No video files found in folder'
+      }) + '\n');
+      res.end();
+      return;
+    }
+    
+    let renamedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+    
+    for (let i = 0; i < videoFiles.length; i++) {
+      const oldFileName = videoFiles[i];
+      
+      try {
+        // Send progress update
+        res.write(JSON.stringify({
+          type: 'progress',
+          current: i + 1,
+          total: videoFiles.length,
+          file: oldFileName
+        }) + '\n');
+        
+        // Determine new filename based on patterns
+        let newFileName = oldFileName;
+        
+        // Extract extension
+        const ext = path.extname(oldFileName);
+        const nameWithoutExt = oldFileName.replace(ext, '');
+        
+        // Case 1: Pattern like "1PWF92_EK4Q2TFQNB_0000001" -> "1PWF92_EK4Q2TFQNB_fc-0000001"
+        // (no "_fc" present, has underscore before sequence number)
+        const case1Pattern = /^(.+?)_(\d{7})$/;
+        const case1Match = nameWithoutExt.match(case1Pattern);
+        
+        if (case1Match && !nameWithoutExt.includes('_fc')) {
+          const baseName = case1Match[1];
+          const sequenceNum = case1Match[2];
+          newFileName = `${baseName}_fc-${sequenceNum}${ext}`;
+        }
+        
+        // Case 2: Pattern like "1PWF92_EKMUVX5H0D_fc_0000006" -> "1PWF92_EKMUVX5H0D_fc-0000006"
+        // (has "_fc_" that needs to be replaced with "_fc-")
+        const case2Pattern = /^(.+?)_fc_(\d{7})$/;
+        const case2Match = nameWithoutExt.match(case2Pattern);
+        
+        if (case2Match) {
+          const baseName = case2Match[1];
+          const sequenceNum = case2Match[2];
+          newFileName = `${baseName}_fc-${sequenceNum}${ext}`;
+        }
+        
+        // Check if rename is needed
+        if (newFileName === oldFileName) {
+          skippedCount++;
+          res.write(JSON.stringify({
+            type: 'skipped',
+            file: oldFileName,
+            reason: 'Already in correct format or no pattern match'
+          }) + '\n');
+          continue;
+        }
+        
+        // Perform rename
+        const oldFilePath = path.join(fullFolderPath, oldFileName);
+        const newFilePath = path.join(fullFolderPath, newFileName);
+        
+        // Check if target file already exists
+        if (fs.existsSync(newFilePath)) {
+          errorCount++;
+          res.write(JSON.stringify({
+            type: 'error',
+            file: oldFileName,
+            error: `Target file already exists: ${newFileName}`
+          }) + '\n');
+          continue;
+        }
+        
+        // Rename the file
+        fs.renameSync(oldFilePath, newFilePath);
+        
+        renamedCount++;
+        res.write(JSON.stringify({
+          type: 'success',
+          oldName: oldFileName,
+          newName: newFileName
+        }) + '\n');
+        
+      } catch (error) {
+        errorCount++;
+        res.write(JSON.stringify({
+          type: 'error',
+          file: oldFileName,
+          error: error.message
+        }) + '\n');
+      }
+    }
+    
+    // Send completion summary
+    res.write(JSON.stringify({
+      type: 'complete',
+      summary: {
+        total: videoFiles.length,
+        renamed: renamedCount,
+        skipped: skippedCount,
+        errors: errorCount
+      }
+    }) + '\n');
+    
+    res.end();
+  } catch (error) {
+    console.error('Rename error:', error);
+    res.write(JSON.stringify({
+      type: 'error',
+      file: 'System',
+      error: error.message
+    }) + '\n');
+    res.end();
+  }
+});
+
 // Motion Analysis endpoint
 app.post('/api/analyze-motion', async (req, res) => {
   try {

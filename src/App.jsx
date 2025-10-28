@@ -8,6 +8,7 @@ import XMLDownload from './components/XMLDownload';
 import VideoDownloader from './components/VideoDownloader';
 import XmlGenerator from './components/XmlGenerator';
 import MotionAnalyzer from './components/MotionAnalyzer';
+import FileRenamer from './components/FileRenamer';
 import { processVideoBatch, createZipFile, downloadZip, getVideoInfo } from './utils/videoUtils';
 import './App.css';
 
@@ -168,9 +169,17 @@ function App() {
           >
             🎬 Analyze Motion
           </button>
+          <button 
+            className={`mode-btn ${processingMode === 'rename' ? 'active' : ''}`}
+            onClick={() => setProcessingMode('rename')}
+          >
+            ✏️ Rename Files
+          </button>
         </div>
 
-        {processingMode === 'motion' ? (
+        {processingMode === 'rename' ? (
+          <FileRenamer />
+        ) : processingMode === 'motion' ? (
           <MotionAnalyzer />
         ) : processingMode === 'xmlgenerate' ? (
           <XmlGenerator />
