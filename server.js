@@ -983,7 +983,7 @@ app.post('/api/check-xml-duration', async (req, res) => {
 // File Rename endpoint
 app.post('/api/rename-files', async (req, res) => {
   try {
-    const { folderPath } = req.body;
+    const { folderPath, excelFile } = req.body;
     
     if (!folderPath) {
       return res.status(400).json({ error: 'Folder path is required' });
@@ -1049,24 +1049,42 @@ app.post('/api/rename-files', async (req, res) => {
         
         // Case 1: Pattern like "1PWF92_EK4Q2TFQNB_0000001" -> "1PWF92_EK4Q2TFQNB_fc-0000001"
         // (no "_fc" present, has underscore before sequence number)
-        const case1Pattern = /^(.+?)_(\d{7})$/;
+        // Supports 6 or 7 digit sequence numbers, always outputs 7 digits
+        const case1Pattern = /^(.+?)_(\d{6,7})$/;
         const case1Match = nameWithoutExt.match(case1Pattern);
         
         if (case1Match && !nameWithoutExt.includes('_fc')) {
           const baseName = case1Match[1];
-          const sequenceNum = case1Match[2];
+          const sequenceNum = case1Match[2].padStart(7, '0'); // Pad to 7 digits
           newFileName = `${baseName}_fc-${sequenceNum}${ext}`;
         }
         
         // Case 2: Pattern like "1PWF92_EKMUVX5H0D_fc_0000006" -> "1PWF92_EKMUVX5H0D_fc-0000006"
         // (has "_fc_" that needs to be replaced with "_fc-")
-        const case2Pattern = /^(.+?)_fc_(\d{7})$/;
+        // Supports 6 or 7 digit sequence numbers, always outputs 7 digits
+        const case2Pattern = /^(.+?)_fc_(\d{6,7})$/;
         const case2Match = nameWithoutExt.match(case2Pattern);
         
         if (case2Match) {
           const baseName = case2Match[1];
-          const sequenceNum = case2Match[2];
+          const sequenceNum = case2Match[2].padStart(7, '0'); // Pad to 7 digits
           newFileName = `${baseName}_fc-${sequenceNum}${ext}`;
+        }
+        
+        // Case 3: Fix existing files that already have "_fc-" but wrong digit count
+        // Pattern like "1PWF92_EL697ZEN58_fc-000006" -> "1PWF92_EL697ZEN58_fc-0000006"
+        const case3Pattern = /^(.+?)_fc-(\d{6,7})$/;
+        const case3Match = nameWithoutExt.match(case3Pattern);
+        
+        if (case3Match) {
+          const baseName = case3Match[1];
+          const sequenceNum = case3Match[2].padStart(7, '0'); // Pad to 7 digits
+          const standardizedName = `${baseName}_fc-${sequenceNum}${ext}`;
+          
+          // Only rename if the digit count changed
+          if (standardizedName !== oldFileName) {
+            newFileName = standardizedName;
+          }
         }
         
         // Check if rename is needed
@@ -1112,6 +1130,107 @@ app.post('/api/rename-files', async (req, res) => {
           file: oldFileName,
           error: error.message
         }) + '\n');
+      }
+    }
+    
+    // Perform validation if Excel file is provided
+    if (excelFile) {
+      try {
+        console.log('📊 Starting Excel validation...');
+        
+        const fullExcelPath = path.isAbsolute(excelFile)
+          ? excelFile
+          : path.join(__dirname, excelFile);
+        
+        if (fs.existsSync(fullExcelPath)) {
+          // Read Excel file
+          const workbook = XLSX.readFile(fullExcelPath);
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const data = XLSX.utils.sheet_to_json(worksheet);
+          
+          // Find file name column
+          const possibleFileNameColumns = ['File Name', 'FileName', 'file name', 'filename', 'name', 'Name'];
+          let fileNameColumn = null;
+          
+          for (const col of possibleFileNameColumns) {
+            if (data.length > 0 && data[0].hasOwnProperty(col)) {
+              fileNameColumn = col;
+              break;
+            }
+          }
+          
+          if (fileNameColumn) {
+            console.log(`📋 Using Excel column: "${fileNameColumn}"`);
+            
+            // Get base names from Excel (strip sequence numbers)
+            const excelFileNames = new Set();
+            data.forEach(row => {
+              if (row[fileNameColumn]) {
+                const fileName = row[fileNameColumn].toString().trim();
+                let baseName = fileName.replace(/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i, '');
+                
+                // Remove sequence number patterns
+                baseName = baseName.replace(/_fc-\d{6,7}$/i, '');
+                baseName = baseName.replace(/_fc_\d{6,7}$/i, '');
+                baseName = baseName.replace(/_\d{6,7}$/i, '');
+                
+                excelFileNames.add(baseName);
+              }
+            });
+            
+            console.log(`📊 Found ${excelFileNames.size} unique base names in Excel`);
+            
+            // Get base names from video files (strip sequence numbers)
+            const videoFileBaseNames = new Set();
+            const videoFilesList = [];
+            
+            videoFiles.forEach(file => {
+              let baseName = file.replace(/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i, '');
+              
+              // Remove sequence number patterns
+              baseName = baseName.replace(/_fc-\d{6,7}$/i, '');
+              baseName = baseName.replace(/_fc_\d{6,7}$/i, '');
+              baseName = baseName.replace(/_\d{6,7}$/i, '');
+              
+              videoFileBaseNames.add(baseName);
+              videoFilesList.push({ fullName: file, baseName: baseName });
+            });
+            
+            console.log(`🎬 Found ${videoFileBaseNames.size} unique base names in videos`);
+            
+            // Match video files against Excel (not the other way around)
+            const missingInExcel = []; // Videos that are NOT in Excel
+            let matchCount = 0;
+            
+            videoFilesList.forEach(video => {
+              if (excelFileNames.has(video.baseName)) {
+                matchCount++;
+              } else {
+                // Only add unique base names to missingInExcel
+                if (!missingInExcel.includes(video.baseName)) {
+                  missingInExcel.push(video.baseName);
+                }
+              }
+            });
+            
+            console.log(`✅ Videos in Excel: ${matchCount}`);
+            console.log(`❌ Videos NOT in Excel: ${missingInExcel.length}`);
+            
+            // Send validation results
+            res.write(JSON.stringify({
+              type: 'validation',
+              totalInExcel: excelFileNames.size,
+              totalVideos: videoFiles.length,
+              uniqueVideoBaseNames: videoFileBaseNames.size,
+              matches: matchCount,
+              missingInExcel: missingInExcel
+            }) + '\n');
+          }
+        }
+      } catch (error) {
+        console.error('⚠️ Validation error (non-fatal):', error.message);
+        // Don't fail the whole operation, just skip validation
       }
     }
     
@@ -1212,6 +1331,160 @@ app.post('/api/analyze-motion', async (req, res) => {
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Video downloader API is running' });
+});
+
+// File Validation endpoint - Compare Excel file names with actual video files
+app.post('/api/validate-files', async (req, res) => {
+  try {
+    const { folderPath, excelFile } = req.body;
+    
+    if (!folderPath || !excelFile) {
+      return res.status(400).json({ error: 'Folder path and Excel file are required' });
+    }
+    
+    console.log('🔍 Starting file validation...');
+    console.log('📁 Folder:', folderPath);
+    console.log('📊 Excel:', excelFile);
+    
+    // Resolve paths
+    const fullFolderPath = path.isAbsolute(folderPath)
+      ? folderPath
+      : path.join(__dirname, folderPath);
+    
+    const fullExcelPath = path.isAbsolute(excelFile)
+      ? excelFile
+      : path.join(__dirname, excelFile);
+    
+    // Check if folder exists
+    if (!fs.existsSync(fullFolderPath)) {
+      return res.status(404).json({ error: `Folder not found: ${folderPath}` });
+    }
+    
+    // Check if Excel file exists
+    if (!fs.existsSync(fullExcelPath)) {
+      return res.status(404).json({ error: `Excel file not found: ${excelFile}` });
+    }
+    
+    // Read Excel file
+    console.log('📖 Reading Excel file...');
+    const workbook = XLSX.readFile(fullExcelPath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+    
+    // Extract file names from Excel (assuming there's a "File Name" column)
+    // Try different possible column names
+    const possibleFileNameColumns = ['File Name', 'FileName', 'file name', 'filename', 'name', 'Name'];
+    let fileNameColumn = null;
+    
+    for (const col of possibleFileNameColumns) {
+      if (data.length > 0 && data[0].hasOwnProperty(col)) {
+        fileNameColumn = col;
+        break;
+      }
+    }
+    
+    if (!fileNameColumn) {
+      return res.status(400).json({ 
+        error: 'Could not find file name column in Excel. Expected columns: File Name, FileName, file name, filename, name, or Name',
+        availableColumns: data.length > 0 ? Object.keys(data[0]) : []
+      });
+    }
+    
+    console.log(`📋 Using column: "${fileNameColumn}"`);
+    
+    // Get file names from Excel (base names without extension and sequence number)
+    const excelFileNames = new Set();
+    data.forEach(row => {
+      if (row[fileNameColumn]) {
+        // Remove extension and store base name
+        const fileName = row[fileNameColumn].toString().trim();
+        let baseName = fileName.replace(/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i, '');
+        
+        // Remove sequence number patterns (same as video files)
+        baseName = baseName.replace(/_fc-\d{6,7}$/i, '');  // Remove _fc-XXXXXXX
+        baseName = baseName.replace(/_fc_\d{6,7}$/i, '');  // Remove _fc_XXXXXXX
+        baseName = baseName.replace(/_\d{6,7}$/i, '');     // Remove _XXXXXXX
+        
+        excelFileNames.add(baseName);
+        console.log(`   📊 ${fileName} -> ${baseName}`);
+      }
+    });
+    
+    console.log(`📊 Found ${excelFileNames.size} file names in Excel`);
+    
+    // Get actual video files in folder
+    const videoFiles = fs.readdirSync(fullFolderPath).filter(file => {
+      return /\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i.test(file);
+    });
+    
+    console.log(`🎬 Found ${videoFiles.length} video files in folder`);
+    
+    // Get base names of video files (without extension and sequence number)
+    // Example: 1PWF92_EKR6EH6G4K_fc-0000066.mp4 -> 1PWF92_EKR6EH6G4K
+    const videoFileBaseNames = new Set();
+    videoFiles.forEach(file => {
+      // Remove extension
+      let baseName = file.replace(/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i, '');
+      
+      // Remove sequence number patterns:
+      // Pattern 1: _fc-XXXXXXX (7 digits)
+      // Pattern 2: _fc-XXXXXX (6 digits)
+      // Pattern 3: _fc_XXXXXXX (7 digits)
+      // Pattern 4: _fc_XXXXXX (6 digits)
+      // Pattern 5: _XXXXXXX (7 digits, no fc)
+      // Pattern 6: _XXXXXX (6 digits, no fc)
+      baseName = baseName.replace(/_fc-\d{6,7}$/i, '');  // Remove _fc-XXXXXXX
+      baseName = baseName.replace(/_fc_\d{6,7}$/i, '');  // Remove _fc_XXXXXXX
+      baseName = baseName.replace(/_\d{6,7}$/i, '');     // Remove _XXXXXXX
+      
+      videoFileBaseNames.add(baseName);
+      console.log(`   📹 ${file} -> ${baseName}`);
+    });
+    
+    // Find mismatches
+    const missingVideos = []; // In Excel but not in folder
+    const extraVideos = [];   // In folder but not in Excel
+    let matches = 0;
+    
+    // Check which Excel entries don't have corresponding videos
+    excelFileNames.forEach(excelFile => {
+      if (videoFileBaseNames.has(excelFile)) {
+        matches++;
+      } else {
+        missingVideos.push(excelFile);
+      }
+    });
+    
+    // Check which videos don't have corresponding Excel entries
+    videoFileBaseNames.forEach(videoFile => {
+      if (!excelFileNames.has(videoFile)) {
+        extraVideos.push(videoFile);
+      }
+    });
+    
+    console.log(`✅ Matches: ${matches}`);
+    console.log(`❌ Missing videos: ${missingVideos.length}`);
+    console.log(`⚠️ Extra videos: ${extraVideos.length}`);
+    
+    // Return results
+    res.json({
+      totalInExcel: excelFileNames.size,
+      totalVideos: videoFileBaseNames.size,
+      matches: matches,
+      missingVideos: missingVideos,
+      extraVideos: extraVideos,
+      fileNameColumn: fileNameColumn
+    });
+    
+  } catch (error) {
+    console.error('❌ Validation error:', error);
+    res.status(500).json({ 
+      error: 'Validation failed', 
+      message: error.message,
+      stack: error.stack
+    });
+  }
 });
 
 app.listen(PORT, () => {

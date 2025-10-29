@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📄 XML Generator - Standalone</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1rem;
+        }
+
+        .server-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            font-weight: 600;
+        }
+
+        .server-status.online {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .server-status.offline {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .online .status-indicator {
+            background-color: #4caf50;
+            box-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
+        }
+
+        .offline .status-indicator {
+            background-color: #f44336;
+        }
+
+        .form-section {
+            margin-bottom: 25px;
+        }
+
+        .form-section label {
+            display: block;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .form-section label span {
+            color: #f44336;
+        }
+
+        .folder-selector {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .folder-selector button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .folder-selector button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .selected-path {
+            flex: 1;
+            padding: 12px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            color: #666;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        .default-path-info {
+            margin-top: 8px;
+            padding: 8px 12px;
+            background: #e3f2fd;
+            border-left: 3px solid #2196f3;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            color: #1565c0;
+        }
+
+        .generate-button {
+            width: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 16px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        .generate-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .generate-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .progress-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 24px;
+            background: #e0e0e0;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+
+        .current-file {
+            text-align: center;
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 8px;
+        }
+
+        .results-section {
+            margin-top: 30px;
+        }
+
+        .results-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+        }
+
+        .results-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .result-item {
+            padding: 15px;
+            background: #f5f5f5;
+            border-left: 4px solid #4caf50;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .result-item.error {
+            border-left-color: #f44336;
+            background: #ffebee;
+        }
+
+        .result-item strong {
+            color: #333;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .result-item span {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .success-banner {
+            padding: 20px;
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            color: white;
+            text-align: center;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📄 XML Generator</h1>
+            <p>Generate XML files from video metadata</p>
+        </div>
+
+        <div id="serverStatus" class="server-status offline">
+            <span class="status-indicator"></span>
+            <span>Checking server...</span>
+        </div>
+
+        <!-- Video Folder Selection -->
+        <div class="form-section">
+            <label>📂 Video Folder <span>*</span></label>
+            <div class="folder-selector">
+                <button onclick="selectVideoFolder()">📂 Select Folder</button>
+                <div class="selected-path" id="videoPath">No folder selected</div>
+            </div>
+            <div class="default-path-info">
+                ℹ️ Default: <code>public/Videos</code>
+            </div>
+        </div>
+
+        <!-- API Responses Folder Selection -->
+        <div class="form-section">
+            <label>📁 API Responses Folder <span>*</span></label>
+            <div class="folder-selector">
+                <button onclick="selectApiFolder()">📂 Select Folder</button>
+                <div class="selected-path" id="apiPath">No folder selected</div>
+            </div>
+            <div class="default-path-info">
+                ℹ️ Default: <code>public/api-responses</code>
+            </div>
+        </div>
+
+        <!-- Excel File Selection -->
+        <div class="form-section">
+            <label>📊 Excel File <span>*</span></label>
+            <div class="folder-selector">
+                <button onclick="selectExcelFile()">📄 Select File</button>
+                <div class="selected-path" id="excelPath">No file selected</div>
+            </div>
+            <div class="default-path-info">
+                ℹ️ Default: <code>public/video.xlsx</code>
+            </div>
+        </div>
+
+        <!-- Generate Button -->
+        <button class="generate-button" id="generateBtn" onclick="generateXML()">
+            🚀 Generate XML Files
+        </button>
+
+        <!-- Progress Section -->
+        <div id="progressSection" class="progress-section hidden">
+            <div class="progress-header">
+                <span id="progressStatus">Processing...</span>
+                <span id="progressCount">0 / 0</span>
+            </div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar" style="width: 0%">
+                    <span id="progressPercent">0%</span>
+                </div>
+            </div>
+            <div class="current-file" id="currentFile">Initializing...</div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="results-section hidden">
+            <h3>✅ Generated Files (<span id="successCount">0</span>)</h3>
+            <div class="results-list" id="successList"></div>
+        </div>
+
+        <!-- Errors Section -->
+        <div id="errorsSection" class="results-section hidden">
+            <h3>⚠️ Errors (<span id="errorCount">0</span>)</h3>
+            <div class="results-list" id="errorList"></div>
+        </div>
+
+        <!-- Success Banner -->
+        <div id="successBanner" class="success-banner hidden">
+            🎉 All XML files generated successfully!
+        </div>
+    </div>
+
+    <script src="xml-generator.js"></script>
+</body>
+</html>
+
