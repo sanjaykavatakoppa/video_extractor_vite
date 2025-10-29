@@ -64,74 +64,37 @@ function updateServerStatusUI() {
 }
 
 // ============================================================================
-// FOLDER/FILE SELECTION
+// FOLDER/FILE SELECTION - Manual Path Input
 // ============================================================================
 
 function selectVideoFolder() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.webkitdirectory = true;
-    input.directory = true;
+    const path = prompt('📂 Enter video folder path (e.g., public/Videos):', state.videoFolderPath || 'public/Videos');
     
-    input.onchange = (e) => {
-        const files = Array.from(e.target.files);
-        if (files.length > 0) {
-            // Extract the folder path from the first file
-            const firstFile = files[0];
-            const pathParts = firstFile.webkitRelativePath.split('/');
-            const folderName = pathParts[0];
-            
-            // For folders within public/, prepend 'public/'
-            state.videoFolderPath = 'public/' + folderName;
-            
-            document.getElementById('videoPath').textContent = state.videoFolderPath;
-            console.log('📂 Video folder selected:', state.videoFolderPath);
-        }
-    };
-    
-    input.click();
+    if (path && path.trim()) {
+        state.videoFolderPath = path.trim();
+        document.getElementById('videoPath').textContent = state.videoFolderPath;
+        console.log('📂 Video folder path set:', state.videoFolderPath);
+    }
 }
 
 function selectApiFolder() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.webkitdirectory = true;
-    input.directory = true;
+    const path = prompt('📁 Enter API responses folder path (e.g., public/api-responses):', state.apiResponsesPath || 'public/api-responses');
     
-    input.onchange = (e) => {
-        const files = Array.from(e.target.files);
-        if (files.length > 0) {
-            const firstFile = files[0];
-            const pathParts = firstFile.webkitRelativePath.split('/');
-            const folderName = pathParts[0];
-            
-            state.apiResponsesPath = 'public/' + folderName;
-            
-            document.getElementById('apiPath').textContent = state.apiResponsesPath;
-            console.log('📁 API responses folder selected:', state.apiResponsesPath);
-        }
-    };
-    
-    input.click();
+    if (path && path.trim()) {
+        state.apiResponsesPath = path.trim();
+        document.getElementById('apiPath').textContent = state.apiResponsesPath;
+        console.log('📁 API responses folder path set:', state.apiResponsesPath);
+    }
 }
 
 function selectExcelFile() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.xlsx,.xls';
+    const path = prompt('📊 Enter Excel file path (e.g., public/video.xlsx):', state.excelPath || 'public/video.xlsx');
     
-    input.onchange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            // For files within public/, prepend 'public/'
-            state.excelPath = 'public/' + file.name;
-            
-            document.getElementById('excelPath').textContent = state.excelPath;
-            console.log('📊 Excel file selected:', state.excelPath);
-        }
-    };
-    
-    input.click();
+    if (path && path.trim()) {
+        state.excelPath = path.trim();
+        document.getElementById('excelPath').textContent = state.excelPath;
+        console.log('📊 Excel file path set:', state.excelPath);
+    }
 }
 
 // ============================================================================

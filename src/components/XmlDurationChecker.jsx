@@ -17,8 +17,9 @@ function XmlDurationChecker() {
     issueFiles: [],
     validFiles: 0
   });
+  const [suggestedPaths, setSuggestedPaths] = useState([]);
 
-  // Check server health
+  // Check server health and get suggested paths
   useEffect(() => {
     const checkServer = async () => {
       try {
@@ -29,7 +30,20 @@ function XmlDurationChecker() {
       }
     };
     
+    const getSuggestedPaths = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/suggested-paths');
+        if (response.ok) {
+          const data = await response.json();
+          setSuggestedPaths(data.paths || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch suggested paths:', error);
+      }
+    };
+    
     checkServer();
+    getSuggestedPaths();
     const interval = setInterval(checkServer, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -40,8 +54,23 @@ function XmlDurationChecker() {
       setSelectedFiles(files);
       const firstFile = files[0];
       const fullPath = firstFile.webkitRelativePath || firstFile.name;
-      const folderName = fullPath.substring(0, fullPath.lastIndexOf('/')) || fullPath;
-      setFolderPath('public/' + folderName);
+      const pathParts = fullPath.split('/');
+      const folderName = pathParts[0];
+      const finalPath = 'public/' + folderName;
+      setFolderPath(finalPath);
+      
+      // Warn if selecting from outside project
+      if (folderName !== 'Videos' && folderName !== 'xml-files' && !folderName.startsWith('test')) {
+        alert('⚠️ WARNING: You selected a folder from outside the project!\n\n' +
+              'The Browse button only works for folders inside video_extractor_vite/public/\n\n' +
+              'For external folders:\n' +
+              '1. Clear the path field\n' +
+              '2. Type the FULL path manually\n' +
+              '3. Example: /Users/sanjayak/Dropbox/xml-files\n\n' +
+              'Click OK to clear and try again.');
+        setFolderPath('');
+        setSelectedFiles([]);
+      }
     }
   };
 
@@ -180,9 +209,26 @@ function XmlDurationChecker() {
         <div className="input-group">
           <label>
             📁 XML Folder *
-            <span className="label-hint">(Select folder containing XML files)</span>
+            <span className="label-hint">(Type path or browse public/)</span>
           </label>
           <div className="folder-selector">
+            <input
+              type="text"
+              className="folder-path-input"
+              placeholder="Enter folder path (e.g., /Users/name/Dropbox/xml-files)"
+              value={folderPath}
+              onChange={(e) => setFolderPath(e.target.value)}
+              disabled={isChecking}
+            />
+            <button
+              type="button"
+              className="select-folder-btn"
+              onClick={() => document.getElementById('xmlFolderInput').click()}
+              disabled={isChecking}
+              title="Browse public/ directory only"
+            >
+              📂 Browse
+            </button>
             <input
               id="xmlFolderInput"
               type="file"
@@ -193,27 +239,41 @@ function XmlDurationChecker() {
               disabled={isChecking}
               style={{ display: 'none' }}
             />
-            <label htmlFor="xmlFolderInput" className="select-folder-btn">
-              📂 Select Folder
-            </label>
-            {folderPath ? (
-              <div className="selected-folder-info">
-                <span className="folder-icon">✅</span>
-                <span className="folder-path">{folderPath}</span>
-                {selectedFiles.length > 0 && (
-                  <span className="file-count">({selectedFiles.length} files)</span>
-                )}
-              </div>
-            ) : (
-              <div className="default-folder-info">
-                <span className="folder-icon">ℹ️</span>
-                <span className="folder-path">Will use: public/Videos</span>
-              </div>
-            )}
           </div>
+          {selectedFiles.length > 0 && (
+            <div className="file-count-info">
+              <span className="file-count-badge">📄 {selectedFiles.length} files selected</span>
+            </div>
+          )}
           <small className="input-help">
-            Select folder containing XML files to check
+            ⚠️ For external folders: <strong>Type the full path manually</strong>
+            <br />
+            📂 Browse button only works for public/ directory
           </small>
+          
+          {suggestedPaths.length > 0 && (
+            <div className="suggested-paths">
+              <label className="suggested-label">
+                ⚡ Quick Select (click to use):
+              </label>
+              <div className="suggested-paths-grid">
+                {suggestedPaths.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    className="suggested-path-btn"
+                    onClick={() => setFolderPath(suggestion.path)}
+                    disabled={isChecking}
+                    title={suggestion.path}
+                  >
+                    <span className="path-icon">📁</span>
+                    <span className="path-name">{suggestion.name}</span>
+                    <span className="path-count">({suggestion.fileCount} files)</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <button

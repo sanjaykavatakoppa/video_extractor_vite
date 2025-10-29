@@ -15,8 +15,9 @@ function XmlGenerator() {
   });
   const [generatedFiles, setGeneratedFiles] = useState([]);
   const [errors, setErrors] = useState([]);
+  const [suggestedPaths, setSuggestedPaths] = useState([]);
 
-  // Check if server is online
+  // Check if server is online and get suggested paths
   useEffect(() => {
     const checkServer = async () => {
       try {
@@ -27,7 +28,20 @@ function XmlGenerator() {
       }
     };
 
+    const getSuggestedPaths = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/suggested-paths');
+        if (response.ok) {
+          const data = await response.json();
+          setSuggestedPaths(data.paths || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch suggested paths:', error);
+      }
+    };
+
     checkServer();
+    getSuggestedPaths();
     const interval = setInterval(checkServer, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -37,8 +51,18 @@ function XmlGenerator() {
     if (files.length > 0) {
       const firstFile = files[0];
       const fullPath = firstFile.webkitRelativePath || firstFile.name;
-      const folderPath = 'public/' + (fullPath.substring(0, fullPath.lastIndexOf('/')) || fullPath);
-      setVideoFolderPath(folderPath);
+      const pathParts = fullPath.split('/');
+      const folderName = pathParts[0];
+      const finalPath = 'public/' + folderName;
+      setVideoFolderPath(finalPath);
+      
+      if (folderName !== 'Videos' && !folderName.startsWith('test')) {
+        alert('⚠️ WARNING: You selected a folder from outside the project!\n\n' +
+              'The Browse button only works for folders inside video_extractor_vite/public/\n\n' +
+              'For external folders: Type the FULL path manually\n' +
+              'Example: /Users/sanjayak/Dropbox/Videos');
+        setVideoFolderPath('');
+      }
     }
   };
 
@@ -47,8 +71,18 @@ function XmlGenerator() {
     if (files.length > 0) {
       const firstFile = files[0];
       const fullPath = firstFile.webkitRelativePath || firstFile.name;
-      const folderPath = 'public/' + (fullPath.substring(0, fullPath.lastIndexOf('/')) || fullPath);
-      setApiResponsesPath(folderPath);
+      const pathParts = fullPath.split('/');
+      const folderName = pathParts[0];
+      const finalPath = 'public/' + folderName;
+      setApiResponsesPath(finalPath);
+      
+      if (folderName !== 'api-responses' && !folderName.startsWith('test')) {
+        alert('⚠️ WARNING: You selected a folder from outside the project!\n\n' +
+              'The Browse button only works for folders inside video_extractor_vite/public/\n\n' +
+              'For external folders: Type the FULL path manually\n' +
+              'Example: /Users/sanjayak/Dropbox/api-responses');
+        setApiResponsesPath('');
+      }
     }
   };
 
@@ -158,9 +192,26 @@ function XmlGenerator() {
         <div className="input-group">
           <label>
             📁 Video Folder *
-            <span className="label-hint">(Select from anywhere - Dropbox, Network drives, etc.)</span>
+            <span className="label-hint">(Type path or browse public/)</span>
           </label>
           <div className="folder-selector">
+            <input
+              type="text"
+              className="folder-path-input"
+              placeholder="Enter folder path (e.g., /Users/name/Dropbox/Videos)"
+              value={videoFolderPath}
+              onChange={(e) => setVideoFolderPath(e.target.value)}
+              disabled={isGenerating}
+            />
+            <button
+              type="button"
+              className="select-folder-btn"
+              onClick={() => document.getElementById('videoFolderInput').click()}
+              disabled={isGenerating}
+              title="Browse public/ directory only"
+            >
+              📂 Browse
+            </button>
             <input
               id="videoFolderInput"
               type="file"
@@ -171,32 +222,61 @@ function XmlGenerator() {
               disabled={isGenerating}
               style={{ display: 'none' }}
             />
-            <label htmlFor="videoFolderInput" className="select-folder-btn">
-              📂 Select Video Folder
-            </label>
-            {videoFolderPath ? (
-              <div className="selected-folder-info">
-                <span className="folder-icon">✅</span>
-                <span className="folder-path">{videoFolderPath}</span>
-              </div>
-            ) : (
-              <div className="default-folder-info">
-                <span className="folder-icon">ℹ️</span>
-                <span className="folder-path">Will use: public/Videos</span>
-              </div>
-            )}
           </div>
           <small className="input-help">
-            Select video folder from public/ directory (or leave empty for default: public/Videos)
+            ⚠️ For external folders: <strong>Type the full path manually</strong>
+            <br />
+            📂 Browse button only works for public/ directory
           </small>
+          
+          {suggestedPaths.length > 0 && (
+            <div className="suggested-paths">
+              <label className="suggested-label">
+                ⚡ Quick Select (click to use):
+              </label>
+              <div className="suggested-paths-grid">
+                {suggestedPaths.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    className="suggested-path-btn"
+                    onClick={() => setVideoFolderPath(suggestion.path)}
+                    disabled={isGenerating}
+                    title={suggestion.path}
+                  >
+                    <span className="path-icon">📁</span>
+                    <span className="path-name">{suggestion.name}</span>
+                    <span className="path-count">({suggestion.fileCount} files)</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="input-group">
           <label>
             📋 API Responses Folder
-            <span className="label-hint">(Optional)</span>
+            <span className="label-hint">(Optional - Type path or browse)</span>
           </label>
           <div className="folder-selector">
+            <input
+              type="text"
+              className="folder-path-input"
+              placeholder="Enter API responses folder path (optional)"
+              value={apiResponsesPath}
+              onChange={(e) => setApiResponsesPath(e.target.value)}
+              disabled={isGenerating}
+            />
+            <button
+              type="button"
+              className="select-folder-btn"
+              onClick={() => document.getElementById('apiResponsesInput').click()}
+              disabled={isGenerating}
+              title="Browse public/ directory only"
+            >
+              📂 Browse
+            </button>
             <input
               id="apiResponsesInput"
               type="file"
@@ -207,23 +287,9 @@ function XmlGenerator() {
               disabled={isGenerating}
               style={{ display: 'none' }}
             />
-            <label htmlFor="apiResponsesInput" className="select-folder-btn secondary">
-              📂 Select API Responses Folder
-            </label>
-            {apiResponsesPath ? (
-              <div className="selected-folder-info">
-                <span className="folder-icon">✅</span>
-                <span className="folder-path">{apiResponsesPath}</span>
-              </div>
-            ) : (
-              <div className="default-folder-info">
-                <span className="folder-icon">ℹ️</span>
-                <span className="folder-path">Will use: public/api-responses</span>
-              </div>
-            )}
           </div>
           <small className="input-help">
-            Optional: Select folder with JSON files (defaults to: public/api-responses)
+            Optional: API responses folder (default: public/api-responses)
           </small>
         </div>
 

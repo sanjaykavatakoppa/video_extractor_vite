@@ -7,9 +7,73 @@ import ffmpeg from 'fluent-ffmpeg';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const VIDEOS_FOLDER = path.join(__dirname, 'public', 'Videos');
-const API_RESPONSES_FOLDER = path.join(__dirname, 'public', 'api-responses');
-const EXCEL_FILE = path.join(__dirname, 'public', 'video.xlsx');
+// Parse command-line arguments
+function getCommandLineArgs() {
+  const args = process.argv.slice(2);
+  const config = {
+    videoFolder: null,
+    apiFolder: null,
+    excelFile: null
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--video-folder' && args[i + 1]) {
+      config.videoFolder = args[i + 1];
+      i++;
+    } else if (args[i] === '--api-folder' && args[i + 1]) {
+      config.apiFolder = args[i + 1];
+      i++;
+    } else if (args[i] === '--excel-file' && args[i + 1]) {
+      config.excelFile = args[i + 1];
+      i++;
+    } else if (args[i] === '--help' || args[i] === '-h') {
+      console.log(`
+📄 XML Generator from Videos
+=============================
+
+Usage:
+  node generate-xml-from-videos.js [options]
+
+Options:
+  --video-folder <path>    Path to video files folder
+  --api-folder <path>      Path to API responses folder
+  --excel-file <path>      Path to Excel file (.xlsx)
+  --help, -h               Show this help message
+
+Examples:
+  # Use all defaults (public/Videos, public/api-responses, public/video.xlsx)
+  node generate-xml-from-videos.js
+
+  # Specify custom paths
+  node generate-xml-from-videos.js \\
+    --video-folder /path/to/videos \\
+    --api-folder /path/to/api-responses \\
+    --excel-file /path/to/video.xlsx
+
+  # Mix custom and defaults
+  node generate-xml-from-videos.js --video-folder /custom/videos
+`);
+      process.exit(0);
+    }
+  }
+
+  return config;
+}
+
+const cmdArgs = getCommandLineArgs();
+
+// Use command-line arguments or fall back to defaults
+const VIDEOS_FOLDER = cmdArgs.videoFolder 
+  ? (path.isAbsolute(cmdArgs.videoFolder) ? cmdArgs.videoFolder : path.join(__dirname, cmdArgs.videoFolder))
+  : path.join(__dirname, 'public', 'Videos');
+
+const API_RESPONSES_FOLDER = cmdArgs.apiFolder
+  ? (path.isAbsolute(cmdArgs.apiFolder) ? cmdArgs.apiFolder : path.join(__dirname, cmdArgs.apiFolder))
+  : path.join(__dirname, 'public', 'api-responses');
+
+const EXCEL_FILE = cmdArgs.excelFile
+  ? (path.isAbsolute(cmdArgs.excelFile) ? cmdArgs.excelFile : path.join(__dirname, cmdArgs.excelFile))
+  : path.join(__dirname, 'public', 'video.xlsx');
 
 /**
  * Extract base filename from various video filename patterns
@@ -213,12 +277,28 @@ function generateXML(videoMetadata, excelData, jsonMetadata) {
  * Main function to process all videos
  */
 async function processAllVideos() {
-  console.log('🚀 Starting XML generation for videos in public/Videos/\n');
+  console.log('🚀 Starting XML generation...\n');
+  console.log('📂 Video folder:        ', VIDEOS_FOLDER);
+  console.log('📁 API responses folder:', API_RESPONSES_FOLDER);
+  console.log('📊 Excel file:          ', EXCEL_FILE);
+  console.log('');
 
   // Check if Videos folder exists
   if (!fs.existsSync(VIDEOS_FOLDER)) {
     console.error('❌ Videos folder not found:', VIDEOS_FOLDER);
     return;
+  }
+
+  // Check if API responses folder exists
+  if (!fs.existsSync(API_RESPONSES_FOLDER)) {
+    console.warn('⚠️  API responses folder not found:', API_RESPONSES_FOLDER);
+    console.warn('⚠️  Continuing without API data...\n');
+  }
+
+  // Check if Excel file exists
+  if (!fs.existsSync(EXCEL_FILE)) {
+    console.warn('⚠️  Excel file not found:', EXCEL_FILE);
+    console.warn('⚠️  Continuing without Excel data...\n');
   }
 
   // Get all video files
