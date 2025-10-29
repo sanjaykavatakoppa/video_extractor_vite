@@ -9,6 +9,7 @@ import VideoDownloader from './components/VideoDownloader';
 import XmlGenerator from './components/XmlGenerator';
 import MotionAnalyzer from './components/MotionAnalyzer';
 import FileRenamer from './components/FileRenamer';
+import XmlDurationChecker from './components/XmlDurationChecker';
 import { processVideoBatch, createZipFile, downloadZip, getVideoInfo } from './utils/videoUtils';
 import './App.css';
 
@@ -175,9 +176,17 @@ function App() {
           >
             ✏️ Rename Files
           </button>
+          <button 
+            className={`mode-btn ${processingMode === 'xmlcheck' ? 'active' : ''}`}
+            onClick={() => setProcessingMode('xmlcheck')}
+          >
+            📊 Check XML Duration
+          </button>
         </div>
 
-        {processingMode === 'rename' ? (
+        {processingMode === 'xmlcheck' ? (
+          <XmlDurationChecker />
+        ) : processingMode === 'rename' ? (
           <FileRenamer />
         ) : processingMode === 'motion' ? (
           <MotionAnalyzer />

@@ -1,0 +1,377 @@
+.xml-checker-container {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.xml-checker-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.xml-checker-header h2 {
+  font-size: 2rem;
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.xml-checker-subtitle {
+  color: #666;
+  font-size: 1rem;
+}
+
+/* Input Section */
+.checker-input-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  margin-bottom: 2rem;
+}
+
+.check-button {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.check-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.check-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.check-button.checking {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+/* Criteria Info */
+.criteria-info {
+  background: #f8f9fa;
+  padding: 1.5rem;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+  border-left: 4px solid #667eea;
+}
+
+.criteria-info h3 {
+  margin-top: 0;
+  color: #333;
+  margin-bottom: 1rem;
+}
+
+.criteria-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.criteria-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+}
+
+.criteria-item.valid {
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+}
+
+.criteria-item.invalid {
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+}
+
+.criteria-icon {
+  font-size: 1.5rem;
+}
+
+.criteria-text {
+  color: #333;
+  font-weight: 500;
+}
+
+/* Progress Section */
+.checker-progress-section {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  margin-bottom: 2rem;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.progress-header h3 {
+  margin: 0;
+  color: #333;
+}
+
+.progress-count {
+  font-weight: 600;
+  color: #667eea;
+}
+
+/* Results Section */
+.results-section {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  margin-bottom: 2rem;
+}
+
+.results-summary {
+  margin-bottom: 2rem;
+}
+
+.results-summary h3 {
+  margin-top: 0;
+  color: #333;
+  margin-bottom: 1rem;
+}
+
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-item {
+  padding: 1rem;
+  border-radius: 8px;
+  background: #f8f9fa;
+  border: 2px solid #e0e0e0;
+}
+
+.stat-item.issue {
+  background: #fff3cd;
+  border-color: #ffc107;
+}
+
+.stat-item.valid {
+  background: #d4edda;
+  border-color: #28a745;
+}
+
+.stat-label {
+  display: block;
+  color: #666;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.stat-value {
+  display: block;
+  font-size: 2rem;
+  font-weight: 700;
+  color: #333;
+}
+
+.download-report-btn {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.download-report-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
+}
+
+/* Issue Files Section */
+.issue-files-section {
+  margin-top: 2rem;
+}
+
+.issue-files-section h3 {
+  color: #dc3545;
+  margin-bottom: 1rem;
+}
+
+.issue-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.issue-file-item {
+  background: #fff;
+  border: 2px solid #f5c6cb;
+  border-left: 4px solid #dc3545;
+  border-radius: 8px;
+  padding: 1rem;
+  transition: box-shadow 0.2s;
+}
+
+.issue-file-item:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.issue-file-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.issue-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: #dc3545;
+  color: white;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.issue-filename {
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+  color: #333;
+  word-break: break-all;
+}
+
+.issue-file-details {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-left: 2.75rem;
+}
+
+.detail-item {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.issue-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.issue-badge.short {
+  background: #ffc107;
+  color: #856404;
+}
+
+.issue-badge.long {
+  background: #ff6b6b;
+  color: #721c24;
+}
+
+/* No Issues Section */
+.no-issues-section {
+  text-align: center;
+  padding: 3rem;
+  background: #d4edda;
+  border-radius: 12px;
+  border: 2px solid #c3e6cb;
+}
+
+.success-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.no-issues-section h3 {
+  color: #155724;
+  margin-bottom: 0.5rem;
+}
+
+.no-issues-section p {
+  color: #155724;
+  font-size: 1.1rem;
+}
+
+/* Info Section */
+.info-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.info-card {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.info-card h4 {
+  margin-top: 0;
+  color: #667eea;
+  margin-bottom: 1rem;
+}
+
+.info-card ul {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.info-card li {
+  margin-bottom: 0.5rem;
+  color: #555;
+  line-height: 1.6;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .xml-checker-container {
+    padding: 1rem;
+  }
+
+  .summary-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .info-section {
+    grid-template-columns: 1fr;
+  }
+
+  .issue-file-details {
+    flex-direction: column;
+    align-items: flex-start;
+    padding-left: 0;
+    margin-top: 0.5rem;
+  }
+}
+

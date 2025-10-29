@@ -856,6 +856,130 @@ app.post('/api/generate-xml-upload', upload.fields([
   }
 });
 
+// XML Duration Checker endpoint
+app.post('/api/check-xml-duration', async (req, res) => {
+  try {
+    const { folderPath } = req.body;
+    
+    if (!folderPath) {
+      return res.status(400).json({ error: 'Folder path is required' });
+    }
+    
+    // Set up streaming response
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    
+    // Handle both absolute and relative paths
+    const fullFolderPath = path.isAbsolute(folderPath)
+      ? folderPath
+      : path.join(__dirname, folderPath);
+    
+    // Check if folder exists
+    if (!fs.existsSync(fullFolderPath)) {
+      res.write(JSON.stringify({
+        type: 'error',
+        message: `Folder not found: ${folderPath}`
+      }) + '\n');
+      res.end();
+      return;
+    }
+    
+    // Get all XML files
+    const xmlFiles = fs.readdirSync(fullFolderPath).filter(file => {
+      return /\.xml$/i.test(file);
+    });
+    
+    if (xmlFiles.length === 0) {
+      res.write(JSON.stringify({
+        type: 'error',
+        message: 'No XML files found in folder'
+      }) + '\n');
+      res.end();
+      return;
+    }
+    
+    let issueCount = 0;
+    let validCount = 0;
+    
+    for (let i = 0; i < xmlFiles.length; i++) {
+      const xmlFile = xmlFiles[i];
+      
+      try {
+        // Send progress update
+        res.write(JSON.stringify({
+          type: 'progress',
+          current: i + 1,
+          total: xmlFiles.length,
+          file: xmlFile
+        }) + '\n');
+        
+        // Read and parse XML file
+        const xmlPath = path.join(fullFolderPath, xmlFile);
+        const xmlContent = fs.readFileSync(xmlPath, 'utf-8');
+        
+        // Extract duration using regex
+        const durationMatch = xmlContent.match(/<Duration>(.*?)<\/Duration>/i);
+        
+        if (!durationMatch) {
+          continue; // Skip files without duration tag
+        }
+        
+        const durationStr = durationMatch[1].trim();
+        
+        // Convert duration to seconds
+        // Format can be: H:MM:SS or HH:MM:SS
+        const parts = durationStr.split(':');
+        let totalSeconds = 0;
+        
+        if (parts.length === 3) {
+          const hours = parseInt(parts[0]) || 0;
+          const minutes = parseInt(parts[1]) || 0;
+          const seconds = parseInt(parts[2]) || 0;
+          totalSeconds = hours * 3600 + minutes * 60 + seconds;
+        }
+        
+        // Check if duration is < 9 or > 20 seconds
+        if (totalSeconds < 9 || totalSeconds > 20) {
+          issueCount++;
+          
+          const reason = totalSeconds < 9 ? 'TOO SHORT' : 'TOO LONG';
+          
+          res.write(JSON.stringify({
+            type: 'issue',
+            filename: xmlFile,
+            duration: durationStr,
+            seconds: totalSeconds,
+            reason: reason
+          }) + '\n');
+        } else {
+          validCount++;
+        }
+        
+      } catch (error) {
+        console.error(`Error processing ${xmlFile}:`, error.message);
+        // Continue to next file
+      }
+    }
+    
+    // Send completion summary
+    res.write(JSON.stringify({
+      type: 'complete',
+      totalFiles: xmlFiles.length,
+      issueFiles: issueCount,
+      validFiles: validCount
+    }) + '\n');
+    
+    res.end();
+  } catch (error) {
+    console.error('XML Check error:', error);
+    res.write(JSON.stringify({
+      type: 'error',
+      message: error.message
+    }) + '\n');
+    res.end();
+  }
+});
+
 // File Rename endpoint
 app.post('/api/rename-files', async (req, res) => {
   try {
