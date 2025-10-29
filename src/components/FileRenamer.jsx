@@ -19,8 +19,9 @@ function FileRenamer() {
   const [errors, setErrors] = useState([]);
   const [summary, setSummary] = useState(null);
   const [validationResults, setValidationResults] = useState(null);
+  const [suggestedPaths, setSuggestedPaths] = useState([]);
 
-  // Check server health
+  // Check server health and get suggested paths
   useEffect(() => {
     const checkServer = async () => {
       try {
@@ -31,7 +32,21 @@ function FileRenamer() {
       }
     };
     
+    const getSuggestedPaths = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/suggested-paths');
+        if (response.ok) {
+          const data = await response.json();
+          setSuggestedPaths(data.paths || []);
+          console.log('📂 Suggested paths loaded:', data.paths);
+        }
+      } catch (error) {
+        console.error('Failed to fetch suggested paths:', error);
+      }
+    };
+    
     checkServer();
+    getSuggestedPaths();
     const interval = setInterval(checkServer, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -42,15 +57,29 @@ function FileRenamer() {
       setSelectedFiles(files);
       const firstFile = files[0];
       
-      // Get the full path (can be from anywhere, not just public/)
+      // Get the relative path from webkitRelativePath
       const fullPath = firstFile.webkitRelativePath || firstFile.name;
       const pathParts = fullPath.split('/');
       const folderName = pathParts[0]; // Just the folder name
       
-      // Always prepend 'public/' for folders selected via webkitdirectory
+      // For browse selection, use public/ prefix (browsers only allow public/ access)
+      // User can type absolute paths manually in the text input
       const finalPath = 'public/' + folderName;
       setFolderPath(finalPath);
-      console.log('📁 Folder selected:', finalPath, `(${files.length} files)`);
+      console.log('📁 Folder selected via browse:', finalPath, `(${files.length} files)`);
+      
+      // Warn user if they selected from outside project
+      if (folderName !== 'Videos' && folderName !== 'rename' && !folderName.startsWith('test')) {
+        alert('⚠️ WARNING: You selected a folder from outside the project!\n\n' +
+              'The Browse button only works for folders inside video_extractor_vite/public/\n\n' +
+              'For Dropbox or other external folders:\n' +
+              '1. Clear the path field\n' +
+              '2. Type the FULL path manually\n' +
+              '3. Example: /Users/sanjayak/Dropbox/Amc_recorded_video\n\n' +
+              'Click OK to clear and try again.');
+        setFolderPath('');
+        setSelectedFiles([]);
+      }
     }
   };
 
@@ -64,7 +93,12 @@ function FileRenamer() {
   };
 
   const handleRename = async () => {
-    const finalPath = folderPath || 'public/Videos';
+    const finalPath = folderPath.trim() || 'public/Videos';
+    
+    if (!finalPath) {
+      alert('⚠️ Please enter or select a folder path');
+      return;
+    }
     
     console.log('🔄 Starting rename + validation process...');
     console.log('📁 Folder path:', finalPath);
@@ -88,7 +122,7 @@ function FileRenamer() {
 
     try {
       const requestBody = { 
-        folderPath: finalPath,
+        folderPath: finalPath,  // Can be absolute or relative path
         excelFile: excelPath || null  // Include Excel file if selected
       };
       
@@ -206,9 +240,26 @@ function FileRenamer() {
         <div className="input-group">
           <label>
             📁 Video Folder *
-            <span className="label-hint">(Select from anywhere on your computer)</span>
+            <span className="label-hint">(Type path manually for network drives)</span>
           </label>
           <div className="folder-selector">
+            <input
+              type="text"
+              className="folder-path-input"
+              placeholder="Type full path here (e.g., /Users/name/Dropbox/Videos)"
+              value={folderPath}
+              onChange={(e) => setFolderPath(e.target.value)}
+              disabled={isRenaming}
+            />
+            <button
+              type="button"
+              className="select-folder-btn"
+              onClick={() => document.getElementById('folderInput').click()}
+              disabled={isRenaming}
+              title="Browse public/ directory only"
+            >
+              📂 Browse
+            </button>
             <input
               id="folderInput"
               type="file"
@@ -219,27 +270,43 @@ function FileRenamer() {
               disabled={isRenaming}
               style={{ display: 'none' }}
             />
-            <label htmlFor="folderInput" className="select-folder-btn">
-              📂 Select Folder
-            </label>
-            {folderPath ? (
-              <div className="selected-folder-info">
-                <span className="folder-icon">✅</span>
-                <span className="folder-path">{folderPath}</span>
-                {selectedFiles.length > 0 && (
-                  <span className="file-count">({selectedFiles.length} files)</span>
-                )}
-              </div>
-            ) : (
-              <div className="default-folder-info">
-                <span className="folder-icon">ℹ️</span>
-                <span className="folder-path">Will use: public/Videos</span>
-              </div>
-            )}
           </div>
+          {selectedFiles.length > 0 && (
+            <div className="file-count-info">
+              <span className="file-count-badge">📄 {selectedFiles.length} files selected</span>
+            </div>
+          )}
           <small className="input-help">
-            Select folder from anywhere on your computer
+            ⚠️ For Dropbox, network drives, or folders outside this project:
+            <br />
+            <strong>Type the full path manually</strong> (e.g., /Users/sanjayak/Dropbox/Amc_recorded_video)
+            <br />
+            📂 Browse button only works for public/ directory
           </small>
+          
+          {suggestedPaths.length > 0 && (
+            <div className="suggested-paths">
+              <label className="suggested-label">
+                ⚡ Quick Select (click to use):
+              </label>
+              <div className="suggested-paths-grid">
+                {suggestedPaths.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    className="suggested-path-btn"
+                    onClick={() => setFolderPath(suggestion.path)}
+                    disabled={isRenaming}
+                    title={suggestion.path}
+                  >
+                    <span className="path-icon">📁</span>
+                    <span className="path-name">{suggestion.name}</span>
+                    <span className="path-count">({suggestion.fileCount} files)</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="input-group">

@@ -1024,112 +1024,261 @@ app.post('/api/rename-files', async (req, res) => {
       return;
     }
     
+    // Step 1: First pass - Standardize all files to correct format
+    console.log('📝 Step 1: Standardizing file formats...');
+    const standardizedFiles = [];
+    
+    for (let i = 0; i < videoFiles.length; i++) {
+      const oldFileName = videoFiles[i];
+      const ext = path.extname(oldFileName);
+      const nameWithoutExt = oldFileName.replace(ext, '');
+      let baseName = '';
+      let sequenceNum = null;
+      
+      // Extract base name and sequence number
+      // Case 1: File without _fc (e.g., 1PWF92_EK4Q2TFQNB_0000001 or 1PWF92_EK4Q2TFQNB_00000010)
+      const case1Pattern = /^(.+?)_(\d{6,8})$/;
+      // Case 2: File with _fc_ (e.g., 1PWF92_EKMUVX5H0D_fc_0000006)
+      const case2Pattern = /^(.+?)_fc_(\d{6,8})$/;
+      // Case 3: File already with _fc- (e.g., 1PWF92_EKMUVX5H0D_fc-0000006)
+      const case3Pattern = /^(.+?)_fc-(\d{6,8})$/;
+      
+      let match = nameWithoutExt.match(case2Pattern);
+      if (match) {
+        // Case 2: Has _fc_ → change to _fc-
+        baseName = match[1];
+        sequenceNum = parseInt(match[2]);
+      } else {
+        match = nameWithoutExt.match(case1Pattern);
+        if (match && !nameWithoutExt.includes('_fc')) {
+          // Case 1: No _fc → add _fc-
+          baseName = match[1];
+          sequenceNum = parseInt(match[2]);
+        } else {
+          match = nameWithoutExt.match(case3Pattern);
+          if (match) {
+            // Case 3: Already has _fc- → may need padding only
+            baseName = match[1];
+            sequenceNum = parseInt(match[2]);
+          }
+        }
+      }
+      
+      if (baseName && sequenceNum !== null) {
+        // Standardize to _fc-XXXXXXX format (7 digits)
+        const standardizedName = `${baseName}_fc-${String(sequenceNum).padStart(7, '0')}${ext}`;
+        const needsRename = standardizedName !== oldFileName;
+        
+        if (needsRename) {
+          console.log(`  📝 ${oldFileName} → ${standardizedName}`);
+        }
+        
+        standardizedFiles.push({
+          originalName: oldFileName,
+          standardizedName: standardizedName,
+          baseName: baseName,
+          sequenceNum: sequenceNum,
+          ext: ext,
+          needsStandardize: needsRename
+        });
+      } else {
+        // File doesn't match pattern, skip renaming
+        standardizedFiles.push({
+          originalName: oldFileName,
+          standardizedName: oldFileName,
+          baseName: '',
+          sequenceNum: null,
+          ext: ext,
+          needsStandardize: false
+        });
+      }
+    }
+    
+    // Rename files that need standardization first
     let renamedCount = 0;
     let skippedCount = 0;
     let errorCount = 0;
     
-    for (let i = 0; i < videoFiles.length; i++) {
-      const oldFileName = videoFiles[i];
+    for (let i = 0; i < standardizedFiles.length; i++) {
+      const file = standardizedFiles[i];
       
-      try {
-        // Send progress update
-        res.write(JSON.stringify({
-          type: 'progress',
-          current: i + 1,
-          total: videoFiles.length,
-          file: oldFileName
-        }) + '\n');
-        
-        // Determine new filename based on patterns
-        let newFileName = oldFileName;
-        
-        // Extract extension
-        const ext = path.extname(oldFileName);
-        const nameWithoutExt = oldFileName.replace(ext, '');
-        
-        // Case 1: Pattern like "1PWF92_EK4Q2TFQNB_0000001" -> "1PWF92_EK4Q2TFQNB_fc-0000001"
-        // (no "_fc" present, has underscore before sequence number)
-        // Supports 6 or 7 digit sequence numbers, always outputs 7 digits
-        const case1Pattern = /^(.+?)_(\d{6,7})$/;
-        const case1Match = nameWithoutExt.match(case1Pattern);
-        
-        if (case1Match && !nameWithoutExt.includes('_fc')) {
-          const baseName = case1Match[1];
-          const sequenceNum = case1Match[2].padStart(7, '0'); // Pad to 7 digits
-          newFileName = `${baseName}_fc-${sequenceNum}${ext}`;
-        }
-        
-        // Case 2: Pattern like "1PWF92_EKMUVX5H0D_fc_0000006" -> "1PWF92_EKMUVX5H0D_fc-0000006"
-        // (has "_fc_" that needs to be replaced with "_fc-")
-        // Supports 6 or 7 digit sequence numbers, always outputs 7 digits
-        const case2Pattern = /^(.+?)_fc_(\d{6,7})$/;
-        const case2Match = nameWithoutExt.match(case2Pattern);
-        
-        if (case2Match) {
-          const baseName = case2Match[1];
-          const sequenceNum = case2Match[2].padStart(7, '0'); // Pad to 7 digits
-          newFileName = `${baseName}_fc-${sequenceNum}${ext}`;
-        }
-        
-        // Case 3: Fix existing files that already have "_fc-" but wrong digit count
-        // Pattern like "1PWF92_EL697ZEN58_fc-000006" -> "1PWF92_EL697ZEN58_fc-0000006"
-        const case3Pattern = /^(.+?)_fc-(\d{6,7})$/;
-        const case3Match = nameWithoutExt.match(case3Pattern);
-        
-        if (case3Match) {
-          const baseName = case3Match[1];
-          const sequenceNum = case3Match[2].padStart(7, '0'); // Pad to 7 digits
-          const standardizedName = `${baseName}_fc-${sequenceNum}${ext}`;
+      res.write(JSON.stringify({
+        type: 'progress',
+        current: i + 1,
+        total: standardizedFiles.length,
+        file: file.originalName
+      }) + '\n');
+      
+      if (file.needsStandardize) {
+        try {
+          const oldFilePath = path.join(fullFolderPath, file.originalName);
+          const newFilePath = path.join(fullFolderPath, file.standardizedName);
           
-          // Only rename if the digit count changed
-          if (standardizedName !== oldFileName) {
-            newFileName = standardizedName;
+          if (fs.existsSync(newFilePath) && file.originalName !== file.standardizedName) {
+            errorCount++;
+            res.write(JSON.stringify({
+              type: 'error',
+              file: file.originalName,
+              error: `Target file already exists: ${file.standardizedName}`
+            }) + '\n');
+            continue;
           }
-        }
-        
-        // Check if rename is needed
-        if (newFileName === oldFileName) {
-          skippedCount++;
-          res.write(JSON.stringify({
-            type: 'skipped',
-            file: oldFileName,
-            reason: 'Already in correct format or no pattern match'
-          }) + '\n');
-          continue;
-        }
-        
-        // Perform rename
-        const oldFilePath = path.join(fullFolderPath, oldFileName);
-        const newFilePath = path.join(fullFolderPath, newFileName);
-        
-        // Check if target file already exists
-        if (fs.existsSync(newFilePath)) {
+          
+          if (file.originalName !== file.standardizedName) {
+            const originalNameForLog = file.originalName;
+            fs.renameSync(oldFilePath, newFilePath);
+            file.currentName = file.standardizedName; // Update current name
+            file.originalName = file.standardizedName; // Update for next step
+            renamedCount++;
+            res.write(JSON.stringify({
+              type: 'success',
+              oldName: originalNameForLog,
+              newName: file.standardizedName
+            }) + '\n');
+          } else {
+            file.currentName = file.standardizedName; // Set current name even if no rename
+          }
+        } catch (error) {
           errorCount++;
           res.write(JSON.stringify({
             type: 'error',
-            file: oldFileName,
-            error: `Target file already exists: ${newFileName}`
+            file: file.originalName,
+            error: error.message
           }) + '\n');
-          continue;
         }
-        
-        // Rename the file
-        fs.renameSync(oldFilePath, newFilePath);
-        
-        renamedCount++;
+      } else {
+        file.currentName = file.originalName; // Set current name for files that don't need standardization
+        skippedCount++;
         res.write(JSON.stringify({
-          type: 'success',
-          oldName: oldFileName,
-          newName: newFileName
+          type: 'skipped',
+          file: file.originalName,
+          reason: 'Already in correct format or no pattern match'
         }) + '\n');
+      }
+    }
+    
+    // Step 2: Fill sequence number gaps
+    console.log('🔢 Step 2: Filling sequence number gaps...');
+    const filesByBaseName = {};
+    
+    // Group files by base name
+    for (const file of standardizedFiles) {
+      if (file.baseName && file.sequenceNum !== null) {
+        if (!filesByBaseName[file.baseName]) {
+          filesByBaseName[file.baseName] = [];
+        }
+        filesByBaseName[file.baseName].push({
+          ...file,
+          currentName: file.standardizedName || file.originalName
+        });
+      }
+    }
+    
+    // For each base name group, fill gaps
+    for (const baseName in filesByBaseName) {
+      const files = filesByBaseName[baseName];
+      
+      // Sort by sequence number
+      files.sort((a, b) => a.sequenceNum - b.sequenceNum);
+      
+      console.log(`   📁 Processing base name: ${baseName}`);
+      console.log(`   📊 Files: ${files.map(f => `${f.baseName}_fc-${String(f.sequenceNum).padStart(7, '0')}`).join(', ')}`);
+      
+      // Find minimum sequence number to start from
+      const minSeq = Math.min(...files.map(f => f.sequenceNum));
+      
+      // Calculate new sequence numbers (sequential from minSeq)
+      const renamePlan = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const newSequenceNum = minSeq + i;
+        const newSequenceStr = String(newSequenceNum).padStart(7, '0');
+        const newFileName = `${baseName}_fc-${newSequenceStr}${file.ext}`;
         
-      } catch (error) {
-        errorCount++;
-        res.write(JSON.stringify({
-          type: 'error',
-          file: oldFileName,
-          error: error.message
-        }) + '\n');
+        if (file.currentName !== newFileName) {
+          renamePlan.push({
+            file: file,
+            oldName: file.currentName,
+            newName: newFileName,
+            newSequenceNum: newSequenceNum
+          });
+        }
+      }
+      
+      if (renamePlan.length === 0) {
+        console.log(`   ✅ No gaps to fill for ${baseName}`);
+        continue;
+      }
+      
+      console.log(`   🔄 Renaming ${renamePlan.length} files to fill gaps...`);
+      
+      // Use temp names for all files that need renaming to avoid conflicts
+      const tempRenames = [];
+      for (const plan of renamePlan) {
+        try {
+          const oldFilePath = path.join(fullFolderPath, plan.oldName);
+          const timestamp = Date.now();
+          const random = Math.random().toString(36).substring(2, 11);
+          const tempName = `_temp_${timestamp}_${random}_${plan.newName}`;
+          const tempPath = path.join(fullFolderPath, tempName);
+          
+          if (fs.existsSync(oldFilePath)) {
+            fs.renameSync(oldFilePath, tempPath);
+            tempRenames.push({
+              tempName: tempName,
+              finalName: plan.newName,
+              originalName: plan.file.originalName || plan.oldName,
+              baseName: baseName,
+              needsStandardize: plan.file.needsStandardize || false
+            });
+            console.log(`   ⏳ ${plan.oldName} → ${tempName} (temp)`);
+          }
+        } catch (error) {
+          errorCount++;
+          res.write(JSON.stringify({
+            type: 'error',
+            file: plan.oldName,
+            error: `Failed to create temp name: ${error.message}`
+          }) + '\n');
+        }
+      }
+      
+      // Now rename all temp files to final names
+      for (const rename of tempRenames) {
+        try {
+          const tempPath = path.join(fullFolderPath, rename.tempName);
+          const finalPath = path.join(fullFolderPath, rename.finalName);
+          
+          if (fs.existsSync(tempPath)) {
+            if (fs.existsSync(finalPath)) {
+              // Final name already exists (shouldn't happen after temp rename)
+              errorCount++;
+              res.write(JSON.stringify({
+                type: 'error',
+                file: rename.tempName,
+                error: `Final name already exists: ${rename.finalName}`
+              }) + '\n');
+            } else {
+              fs.renameSync(tempPath, finalPath);
+              renamedCount++;
+              
+              console.log(`   ✅ ${rename.tempName} → ${rename.finalName}`);
+              res.write(JSON.stringify({
+                type: 'success',
+                oldName: rename.originalName,
+                newName: rename.finalName,
+                reason: 'Sequence gap filled'
+              }) + '\n');
+            }
+          }
+        } catch (error) {
+          errorCount++;
+          res.write(JSON.stringify({
+            type: 'error',
+            file: rename.tempName,
+            error: `Failed final rename: ${error.message}`
+          }) + '\n');
+        }
       }
     }
     
@@ -1170,10 +1319,11 @@ app.post('/api/rename-files', async (req, res) => {
                 const fileName = row[fileNameColumn].toString().trim();
                 let baseName = fileName.replace(/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i, '');
                 
-                // Remove sequence number patterns
-                baseName = baseName.replace(/_fc-\d{6,7}$/i, '');
-                baseName = baseName.replace(/_fc_\d{6,7}$/i, '');
-                baseName = baseName.replace(/_\d{6,7}$/i, '');
+                // Remove sequence number patterns (both formats)
+                // Format 1: with _fc- or _fc_ (e.g., 1PWF92_EKCEA6A8NZ_fc-0000001)
+                baseName = baseName.replace(/_fc[-_]\d{6,8}$/i, '');
+                // Format 2: without _fc (e.g., 1PWF92_EKCEA6A8NZ_00000010)
+                baseName = baseName.replace(/_\d{6,8}$/i, '');
                 
                 excelFileNames.add(baseName);
               }
@@ -1188,10 +1338,11 @@ app.post('/api/rename-files', async (req, res) => {
             videoFiles.forEach(file => {
               let baseName = file.replace(/\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i, '');
               
-              // Remove sequence number patterns
-              baseName = baseName.replace(/_fc-\d{6,7}$/i, '');
-              baseName = baseName.replace(/_fc_\d{6,7}$/i, '');
-              baseName = baseName.replace(/_\d{6,7}$/i, '');
+              // Remove sequence number patterns (both formats)
+              // Format 1: with _fc- or _fc_ (e.g., 1PWF92_EKCEA6A8NZ_fc-0000001)
+              baseName = baseName.replace(/_fc[-_]\d{6,8}$/i, '');
+              // Format 2: without _fc (e.g., 1PWF92_EKCEA6A8NZ_00000010)
+              baseName = baseName.replace(/_\d{6,8}$/i, '');
               
               videoFileBaseNames.add(baseName);
               videoFilesList.push({ fullName: file, baseName: baseName });
@@ -1331,6 +1482,51 @@ app.post('/api/analyze-motion', async (req, res) => {
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Video downloader API is running' });
+});
+
+// Get suggested folder paths (common locations)
+app.get('/api/suggested-paths', (req, res) => {
+  const homeDir = require('os').homedir();
+  const suggestedPaths = [];
+  
+  // Common video folder locations
+  const commonLocations = [
+    path.join(homeDir, 'Dropbox', 'Amc_recorded_video'),
+    path.join(homeDir, 'Library', 'CloudStorage', 'Dropbox', 'Amc_recorded_video'),
+    path.join(homeDir, 'Desktop', 'Videos'),
+    path.join(homeDir, 'Documents', 'Videos'),
+    path.join(homeDir, 'Downloads'),
+    path.join(homeDir, 'Movies'),
+    path.join(__dirname, 'public', 'Videos'),
+    path.join(__dirname, 'public', 'rename'),
+  ];
+  
+  // Check which paths exist and have video files
+  for (const location of commonLocations) {
+    try {
+      if (fs.existsSync(location)) {
+        const files = fs.readdirSync(location);
+        const videoFiles = files.filter(file => {
+          const ext = path.extname(file).toLowerCase();
+          return ['.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm'].includes(ext);
+        });
+        
+        if (videoFiles.length > 0) {
+          suggestedPaths.push({
+            path: location,
+            name: path.basename(location),
+            fileCount: videoFiles.length,
+            displayPath: location.replace(homeDir, '~')
+          });
+        }
+      }
+    } catch (error) {
+      // Skip if can't read directory
+    }
+  }
+  
+  console.log(`📂 Found ${suggestedPaths.length} folders with video files`);
+  res.json({ paths: suggestedPaths });
 });
 
 // File Validation endpoint - Compare Excel file names with actual video files
