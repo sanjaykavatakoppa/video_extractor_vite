@@ -582,6 +582,60 @@ function extractBaseFilename(videoFilename) {
   return match ? match[1] : nameWithoutExt;
 }
 
+// Helper function: Update Excel status by base filename
+function updateExcelStatusByFilename(baseFilename, status = 'Downloaded') {
+  try {
+    const workbook = XLSX.readFile(EXCEL_FILE_PATH);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+    
+    // Find the row with matching "File Name"
+    const rowIndex = data.findIndex(r => r['File Name'] === baseFilename);
+    
+    if (rowIndex === -1) {
+      return { success: false, message: `File name ${baseFilename} not found in Excel` };
+    }
+    
+    // Get the range of the worksheet
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    
+    // Find or create "Download Status" column
+    let downloadStatusCol = -1;
+    
+    // Check headers (row 0) for "Download Status" column
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col });
+      const cell = worksheet[cellAddress];
+      if (cell && cell.v && cell.v.toString().includes('Download Status')) {
+        downloadStatusCol = col;
+        break;
+      }
+    }
+    
+    // If column doesn't exist, create it at the end
+    if (downloadStatusCol === -1) {
+      downloadStatusCol = range.e.c + 1;
+      const headerCell = XLSX.utils.encode_cell({ r: 0, c: downloadStatusCol });
+      worksheet[headerCell] = { v: 'Download Status', t: 's' };
+      range.e.c = downloadStatusCol;
+      worksheet['!ref'] = XLSX.utils.encode_range(range);
+    }
+    
+    // Update the status cell for this row (rowIndex + 1 because Excel is 1-indexed and header is row 0)
+    const statusCell = XLSX.utils.encode_cell({ r: rowIndex + 1, c: downloadStatusCol });
+    worksheet[statusCell] = { v: status, t: 's' };
+    
+    // Write back to file
+    XLSX.writeFile(workbook, EXCEL_FILE_PATH);
+    
+    return { success: true, message: `Updated ${baseFilename} to ${status}` };
+  } catch (error) {
+    console.error('Error updating Excel:', error);
+    return { success: false, message: error.message };
+  }
+}
+
 // Helper function: Get video metadata from JSON (NO ffprobe needed!)
 async function getVideoMetadataFromJson(baseFilename, videoFileName, apiResponsesFolder, videoPath = null) {
   try {
@@ -972,6 +1026,239 @@ app.post('/api/check-xml-duration', async (req, res) => {
     res.end();
   } catch (error) {
     console.error('XML Check error:', error);
+    res.write(JSON.stringify({
+      type: 'error',
+      message: error.message
+    }) + '\n');
+    res.end();
+  }
+});
+
+// Video Duration Checker - Check VIDEO files for duration issues
+app.post('/api/check-video-duration', async (req, res) => {
+  try {
+    const { folderPath } = req.body;
+    
+    if (!folderPath) {
+      return res.status(400).json({ error: 'Folder path is required' });
+    }
+    
+    // Set up streaming response
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    
+    // Handle both absolute and relative paths
+    const fullFolderPath = path.isAbsolute(folderPath)
+      ? folderPath
+      : path.join(__dirname, folderPath);
+    
+    // Check if folder exists
+    if (!fs.existsSync(fullFolderPath)) {
+      res.write(JSON.stringify({
+        type: 'error',
+        message: `Folder not found: ${folderPath}`
+      }) + '\n');
+      res.end();
+      return;
+    }
+    
+    // Get all video files
+    const videoFiles = fs.readdirSync(fullFolderPath).filter(file => {
+      return /\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i.test(file);
+    });
+    
+    if (videoFiles.length === 0) {
+      res.write(JSON.stringify({
+        type: 'error',
+        message: 'No video files found in folder'
+      }) + '\n');
+      res.end();
+      return;
+    }
+    
+    let issueCount = 0;
+    let validCount = 0;
+    
+    for (let i = 0; i < videoFiles.length; i++) {
+      const videoFile = videoFiles[i];
+      
+      try {
+        // Send progress update
+        res.write(JSON.stringify({
+          type: 'progress',
+          current: i + 1,
+          total: videoFiles.length,
+          file: videoFile
+        }) + '\n');
+        
+        // Get video duration using ffprobe/get-video-duration
+        const videoPath = path.join(fullFolderPath, videoFile);
+        const totalSeconds = await getVideoDurationInSeconds(videoPath);
+        
+        // Format duration string
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = Math.floor(totalSeconds % 60);
+        const durationStr = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        
+        // Check if duration is < 9 or > 20 seconds
+        if (totalSeconds < 9 || totalSeconds > 20) {
+          issueCount++;
+          
+          const reason = totalSeconds < 9 ? 'TOO SHORT' : 'TOO LONG';
+          
+          res.write(JSON.stringify({
+            type: 'issue',
+            filename: videoFile,
+            duration: durationStr,
+            seconds: totalSeconds.toFixed(2),
+            reason: reason
+          }) + '\n');
+        } else {
+          validCount++;
+        }
+        
+      } catch (error) {
+        console.error(`Error processing ${videoFile}:`, error.message);
+        // Continue to next file
+      }
+    }
+    
+    // Send completion summary
+    res.write(JSON.stringify({
+      type: 'complete',
+      totalFiles: videoFiles.length,
+      issueFiles: issueCount,
+      validFiles: validCount
+    }) + '\n');
+    
+    res.end();
+  } catch (error) {
+    console.error('Video Duration Check error:', error);
+    res.write(JSON.stringify({
+      type: 'error',
+      message: error.message
+    }) + '\n');
+    res.end();
+  }
+});
+
+// Excel Update endpoint - Update Excel based on video filenames
+app.post('/api/update-excel-from-videos', async (req, res) => {
+  try {
+    const { folderPath } = req.body;
+    
+    if (!folderPath) {
+      return res.status(400).json({ error: 'Folder path is required' });
+    }
+    
+    // Set up streaming response
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    
+    // Handle both absolute and relative paths
+    const fullFolderPath = path.isAbsolute(folderPath)
+      ? folderPath
+      : path.join(__dirname, folderPath);
+    
+    // Check if folder exists
+    if (!fs.existsSync(fullFolderPath)) {
+      res.write(JSON.stringify({
+        type: 'error',
+        message: `Folder not found: ${folderPath}`
+      }) + '\n');
+      res.end();
+      return;
+    }
+    
+    // Get all video files
+    const videoFiles = fs.readdirSync(fullFolderPath).filter(file => {
+      return /\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i.test(file);
+    });
+    
+    if (videoFiles.length === 0) {
+      res.write(JSON.stringify({
+        type: 'error',
+        message: 'No video files found in folder'
+      }) + '\n');
+      res.end();
+      return;
+    }
+    
+    let updatedCount = 0;
+    let notFoundCount = 0;
+    let errorCount = 0;
+    
+    for (let i = 0; i < videoFiles.length; i++) {
+      const videoFile = videoFiles[i];
+      
+      try {
+        // Extract base filename
+        const baseFilename = extractBaseFilename(videoFile);
+        
+        // Send progress update
+        res.write(JSON.stringify({
+          type: 'progress',
+          current: i + 1,
+          total: videoFiles.length,
+          file: videoFile,
+          baseFilename: baseFilename
+        }) + '\n');
+        
+        // Update Excel status
+        const result = updateExcelStatusByFilename(baseFilename, 'Downloaded');
+        
+        if (result.success) {
+          updatedCount++;
+          res.write(JSON.stringify({
+            type: 'updated',
+            file: videoFile,
+            baseFilename: baseFilename,
+            message: result.message
+          }) + '\n');
+        } else {
+          if (result.message.includes('not found')) {
+            notFoundCount++;
+            res.write(JSON.stringify({
+              type: 'notfound',
+              file: videoFile,
+              baseFilename: baseFilename,
+              message: result.message
+            }) + '\n');
+          } else {
+            errorCount++;
+            res.write(JSON.stringify({
+              type: 'error',
+              file: videoFile,
+              baseFilename: baseFilename,
+              message: result.message
+            }) + '\n');
+          }
+        }
+        
+      } catch (error) {
+        errorCount++;
+        console.error(`Error processing ${videoFile}:`, error.message);
+        res.write(JSON.stringify({
+          type: 'error',
+          file: videoFile,
+          message: error.message
+        }) + '\n');
+      }
+    }
+    
+    // Send completion summary
+    res.write(JSON.stringify({
+      type: 'complete',
+      totalFiles: videoFiles.length,
+      updatedCount: updatedCount,
+      notFoundCount: notFoundCount,
+      errorCount: errorCount
+    }) + '\n');
+    
+    res.end();
+  } catch (error) {
+    console.error('Excel Update error:', error);
     res.write(JSON.stringify({
       type: 'error',
       message: error.message

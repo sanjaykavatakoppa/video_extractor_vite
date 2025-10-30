@@ -10,6 +10,8 @@ import XmlGenerator from './components/XmlGenerator';
 import MotionAnalyzer from './components/MotionAnalyzer';
 import FileRenamer from './components/FileRenamer';
 import XmlDurationChecker from './components/XmlDurationChecker';
+import VideoDurationChecker from './components/VideoDurationChecker';
+import ExcelUpdater from './components/ExcelUpdater';
 import { processVideoBatch, createZipFile, downloadZip, getVideoInfo } from './utils/videoUtils';
 import './App.css';
 
@@ -182,10 +184,26 @@ function App() {
           >
             📊 Check XML Duration
           </button>
+          <button 
+            className={`mode-btn ${processingMode === 'videocheck' ? 'active' : ''}`}
+            onClick={() => setProcessingMode('videocheck')}
+          >
+            🎬 Check Video Duration
+          </button>
+          <button 
+            className={`mode-btn ${processingMode === 'excelupdate' ? 'active' : ''}`}
+            onClick={() => setProcessingMode('excelupdate')}
+          >
+            📊 Update Excel Status
+          </button>
         </div>
 
         {processingMode === 'xmlcheck' ? (
           <XmlDurationChecker />
+        ) : processingMode === 'videocheck' ? (
+          <VideoDurationChecker />
+        ) : processingMode === 'excelupdate' ? (
+          <ExcelUpdater />
         ) : processingMode === 'rename' ? (
           <FileRenamer />
         ) : processingMode === 'motion' ? (
