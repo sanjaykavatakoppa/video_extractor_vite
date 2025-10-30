@@ -12,6 +12,7 @@ import FileRenamer from './components/FileRenamer';
 import XmlDurationChecker from './components/XmlDurationChecker';
 import VideoDurationChecker from './components/VideoDurationChecker';
 import ExcelUpdater from './components/ExcelUpdater';
+import VideoClipper from './components/VideoClipper';
 import { processVideoBatch, createZipFile, downloadZip, getVideoInfo } from './utils/videoUtils';
 import './App.css';
 
@@ -196,9 +197,17 @@ function App() {
           >
             📊 Update Excel Status
           </button>
+          <button 
+            className={`mode-btn ${processingMode === 'clipper' ? 'active' : ''}`}
+            onClick={() => setProcessingMode('clipper')}
+          >
+            ✂️ Video Clipper
+          </button>
         </div>
 
-        {processingMode === 'xmlcheck' ? (
+        {processingMode === 'clipper' ? (
+          <VideoClipper />
+        ) : processingMode === 'xmlcheck' ? (
           <XmlDurationChecker />
         ) : processingMode === 'videocheck' ? (
           <VideoDurationChecker />

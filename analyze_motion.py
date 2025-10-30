@@ -11,11 +11,15 @@ import numpy as np
 from pathlib import Path
 from scenedetect import detect, ContentDetector
 
-# Configuration
-MIN_CLIP_DURATION = 9  # seconds
-MAX_CLIP_DURATION = 20  # seconds
-MOTION_THRESHOLD = 5.0  # Minimum motion score to consider a scene active
-FRAME_SAMPLE_RATE = 5  # Analyze every Nth frame (for performance)
+# Configuration - Quality-Based Clipping
+MIN_CLIP_DURATION = 9   # seconds - MINIMUM clip length (hard requirement)
+MAX_CLIP_DURATION = 20  # seconds - MAXIMUM clip length (soft limit - can be longer if quality is good)
+MOTION_THRESHOLD = 4.5  # Minimum motion score (lowered from 5.0 to catch more good clips)
+FRAME_SAMPLE_RATE = 15  # Analyze every Nth frame (higher = faster, was 5)
+CHUNK_SIZE = 18.0       # Divide video into 18-second chunks for analysis
+
+# Logic: Divide video into chunks, check motion, keep good chunks, skip bad chunks
+# Threshold 4.5 captures clips with decent motion while still filtering out static content
 
 def log_progress(message, data=None):
     """Send progress updates to Node.js"""
@@ -95,24 +99,61 @@ def calculate_motion_score(video_path, start_frame, end_frame, fps):
     return total_motion / frame_count if frame_count > 0 else 0
 
 def split_long_scene(start_time, end_time, motion_score):
-    """Split a scene longer than MAX_CLIP_DURATION into multiple clips"""
+    """Split a scene longer than MAX_CLIP_DURATION into multiple clips
+    
+    Creates clips of 17-20 seconds with slight variation (like manual clips).
+    Target: ~18-19 seconds per clip with some natural variation.
+    """
     clips = []
     duration = end_time - start_time
     
+    # Target duration: 18.5s (matches the average of manual clips: 18.9s)
+    TARGET_DURATION = 18.5
+    
     # Calculate number of clips needed
-    num_clips = int(np.ceil(duration / MAX_CLIP_DURATION))
+    num_clips = int(np.ceil(duration / TARGET_DURATION))
+    
+    # If that makes clips too short, reduce number of clips
+    if duration / num_clips < MIN_CLIP_DURATION:
+        num_clips = max(1, int(duration / MIN_CLIP_DURATION))
+    
+    # Calculate actual duration per clip
     clip_duration = duration / num_clips
     
+    # Add slight variation to make clips more natural (±1 second)
     for i in range(num_clips):
+        # Base clip boundaries
         clip_start = start_time + (i * clip_duration)
         clip_end = min(start_time + ((i + 1) * clip_duration), end_time)
+        actual_duration = clip_end - clip_start
         
-        clips.append({
-            "start": round(clip_start, 2),
-            "end": round(clip_end, 2),
-            "duration": round(clip_end - clip_start, 2),
-            "motion_score": round(motion_score, 2)
-        })
+        # Add slight random variation (±5% or ±0.9s, whichever is smaller)
+        # This makes clips slightly varied like manual clips (16.5s - 20s range)
+        variation = min(0.9, actual_duration * 0.05) * (np.random.random() - 0.5) * 2
+        
+        # Apply variation but keep within bounds
+        adjusted_end = clip_end + variation
+        
+        # Ensure we don't exceed the scene boundary
+        if adjusted_end > end_time:
+            adjusted_end = end_time
+        
+        # Ensure previous clip doesn't overlap
+        if i > 0 and clips:
+            adjusted_start = clips[-1]["end"]
+            actual_duration = adjusted_end - adjusted_start
+        else:
+            adjusted_start = clip_start
+            actual_duration = adjusted_end - adjusted_start
+        
+        # Only add if within valid range
+        if MIN_CLIP_DURATION <= actual_duration <= MAX_CLIP_DURATION:
+            clips.append({
+                "start": round(adjusted_start, 2),
+                "end": round(adjusted_end, 2),
+                "duration": round(actual_duration, 2),
+                "motion_score": round(motion_score, 2)
+            })
     
     return clips
 
@@ -135,68 +176,51 @@ def analyze_video(video_path):
     
     log_progress(f"📊 Video info: {duration:.1f}s, {fps:.2f} fps, {total_frames} frames")
     
-    # Detect scenes
-    log_progress("🔍 Detecting scenes...")
-    try:
-        scenes = detect(str(video_path), ContentDetector(threshold=15.0))  # Lower threshold for better detection
-    except Exception as e:
-        log_error(f"Scene detection failed: {str(e)}")
-        return []
+    # FAST: Skip scene detection entirely - divide video into chunks and check motion
+    log_progress("🔍 Analyzing video for high-quality segments (fast method)...")
+    log_progress(f"ℹ️  Processing ~{int(duration / CHUNK_SIZE)} chunks at {CHUNK_SIZE}s each")
     
-    log_progress(f"✅ Found {len(scenes)} scenes")
-    
-    # If no scenes detected, treat entire video as one scene
-    if len(scenes) == 0:
-        log_progress("ℹ️  No scene changes detected - treating as continuous video")
-        # Create artificial scene for entire video
-        from scenedetect.frame_timecode import FrameTimecode
-        scenes = [(FrameTimecode(0, fps), FrameTimecode(int(total_frames), fps))]
-        log_progress(f"✅ Created 1 scene from entire video ({duration:.1f}s)")
-    
-    # Analyze each scene for motion
     motion_clips = []
     
-    for idx, (start_time, end_time) in enumerate(scenes):
-        scene_duration = end_time.get_seconds() - start_time.get_seconds()
+    # Simple approach: Divide video into ~18 second chunks and validate motion
+    # This is MUCH faster than PySceneDetect for large 4K videos
+    current_time = 0.0
+    chunk_num = 0
+    
+    while current_time < duration:
+        chunk_end = min(current_time + CHUNK_SIZE, duration)
+        chunk_duration = chunk_end - current_time
+        chunk_num += 1
+        total_chunks = int(duration / CHUNK_SIZE) + 1
         
-        log_progress(f"⚙️ Analyzing scene {idx + 1}/{len(scenes)} ({scene_duration:.1f}s)")
+        # Skip if chunk is too short
+        if chunk_duration < MIN_CLIP_DURATION:
+            log_progress(f"⏭️  Skipping final small segment: {chunk_duration:.1f}s")
+            break
         
-        # Skip scenes that are too short
-        if scene_duration < MIN_CLIP_DURATION:
-            log_progress(f"⏭️  Skipped (too short: {scene_duration:.1f}s < {MIN_CLIP_DURATION}s)")
-            continue
+        log_progress(f"⚙️ Chunk {chunk_num}/{total_chunks}: {current_time:.1f}s - {chunk_end:.1f}s ({chunk_duration:.1f}s)")
         
-        # Calculate motion score
-        start_frame = int(start_time.get_frames())
-        end_frame = int(end_time.get_frames())
-        motion_score = calculate_motion_score(str(video_path), start_frame, end_frame, fps)
+        # Calculate motion for this chunk
+        start_frame = int(current_time * fps)
+        end_frame = int(chunk_end * fps)
         
-        # Skip low-motion scenes (but only if we have multiple scenes)
-        # For continuous videos (1 scene), include everything
-        if len(scenes) > 1 and motion_score < MOTION_THRESHOLD:
-            log_progress(f"⏭️  Skipped (low motion: {motion_score:.2f} < {MOTION_THRESHOLD})")
-            continue
-        elif motion_score < MOTION_THRESHOLD:
-            log_progress(f"ℹ️  Low motion ({motion_score:.2f}) but keeping (continuous video)")
+        if end_frame > start_frame:
+            motion_score = calculate_motion_score(str(video_path), start_frame, end_frame, fps)
+            
+            # Good motion? Keep this chunk
+            if motion_score >= MOTION_THRESHOLD:
+                log_progress(f"   ✅ KEEP - motion: {motion_score:.2f}")
+                motion_clips.append({
+                    "start": round(current_time, 2),
+                    "end": round(chunk_end, 2),
+                    "duration": round(chunk_duration, 2),
+                    "motion_score": round(motion_score, 2)
+                })
+            else:
+                log_progress(f"   ⏭️  SKIP - motion: {motion_score:.2f}")
         
-        start_seconds = start_time.get_seconds()
-        end_seconds = end_time.get_seconds()
-        
-        # Handle long scenes - split into multiple clips
-        if scene_duration > MAX_CLIP_DURATION:
-            log_progress(f"✂️  Splitting long scene ({scene_duration:.1f}s) into multiple clips")
-            clips = split_long_scene(start_seconds, end_seconds, motion_score)
-            motion_clips.extend(clips)
-        else:
-            # Scene is perfect length (9-20 seconds)
-            motion_clips.append({
-                "start": round(start_seconds, 2),
-                "end": round(end_seconds, 2),
-                "duration": round(scene_duration, 2),
-                "motion_score": round(motion_score, 2)
-            })
-        
-        log_progress(f"✅ Scene {idx + 1}: {scene_duration:.1f}s, motion: {motion_score:.2f}")
+        # Move to next chunk
+        current_time = chunk_end
     
     log_progress(f"🎯 Final result: {len(motion_clips)} motion clips created")
     
