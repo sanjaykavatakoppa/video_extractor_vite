@@ -30,7 +30,7 @@ function spawnPython(scriptPath, args = []) {
 }
 
 const MIN_CLIP_DURATION_DEFAULT = 9;
-const MAX_CLIP_DURATION_DEFAULT = 20;
+const MAX_CLIP_DURATION_DEFAULT = 19;
 const MAX_DURATION_TOLERANCE = 0.1;
 
 function createClipFile(fullVideoPath, outputPath, start, duration, method, { forcePrecision = false, maxDuration = MAX_CLIP_DURATION_DEFAULT } = {}) {

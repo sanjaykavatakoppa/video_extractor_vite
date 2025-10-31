@@ -249,7 +249,7 @@ const VideoClipper = () => {
           outputDir,
           motionThreshold,
           minDuration: 9,
-          maxDuration: 20,
+          maxDuration: 19,
           method: finalMethod
         })
       });
@@ -352,7 +352,9 @@ const VideoClipper = () => {
             method: finalMethod,
             motionThreshold,
             minDuration: 9,
-            maxDuration: 20
+            maxDuration: 19
+            minDuration: 9,
+            maxDuration: 19
           }
         : {
             videoPath,

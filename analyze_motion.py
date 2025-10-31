@@ -13,7 +13,7 @@ from scenedetect import detect, ContentDetector
 
 # Configuration - Quality-Based Clipping
 MIN_CLIP_DURATION = 9   # seconds - MINIMUM clip length (hard requirement)
-MAX_CLIP_DURATION = 20  # seconds - MAXIMUM clip length (absolute cap)
+MAX_CLIP_DURATION = 19  # seconds - MAXIMUM clip length (absolute cap)
 MOTION_THRESHOLD = 4.5  # Minimum motion score (lowered from 5.0 to catch more good clips)
 FRAME_SAMPLE_RATE = 15  # Analyze every Nth frame (higher = faster, was 5)
 WINDOW_SIZE = 1.0       # Size of analysis window in seconds for motion sampling
