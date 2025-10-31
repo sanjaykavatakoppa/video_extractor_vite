@@ -353,8 +353,6 @@ const VideoClipper = () => {
             motionThreshold,
             minDuration: 9,
             maxDuration: 19
-            minDuration: 9,
-            maxDuration: 19
           }
         : {
             videoPath,
