@@ -6,6 +6,8 @@ import path from 'path';
 import https from 'https';
 import http from 'http';
 import ffmpeg from 'fluent-ffmpeg';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import { spawn } from 'child_process';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
@@ -15,6 +17,155 @@ import { getVideoDurationInSeconds } from 'get-video-duration';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+const isWindows = process.platform === 'win32';
+
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+ffmpeg.setFfprobePath(ffprobeInstaller.path);
+
+function spawnPython(scriptPath, args = []) {
+  const pythonCommand = isWindows ? 'py' : 'python3';
+  const pythonArgs = isWindows ? ['-3', scriptPath, ...args] : [scriptPath, ...args];
+  return spawn(pythonCommand, pythonArgs);
+}
+
+const MIN_CLIP_DURATION_DEFAULT = 9;
+const MAX_CLIP_DURATION_DEFAULT = 20;
+const MAX_DURATION_TOLERANCE = 0.1;
+
+function createClipFile(fullVideoPath, outputPath, start, duration, method, { forcePrecision = false, maxDuration = MAX_CLIP_DURATION_DEFAULT } = {}) {
+  return new Promise((resolve, reject) => {
+    let command = ffmpeg(fullVideoPath).seekInput(Number(start.toFixed(3)));
+
+    const durationBuffer = forcePrecision || method !== 'copy' ? Math.min(duration + 1, maxDuration + 2) : duration;
+    command = command.duration(durationBuffer);
+
+    const options = ['-avoid_negative_ts make_zero', '-map_metadata -1'];
+    let applyFilters = forcePrecision || method !== 'copy';
+
+    switch (method) {
+      case 'copy':
+        if (forcePrecision) {
+          options.push(
+            '-c:v libx264',
+            '-preset fast',
+            '-b:v 13M',
+            '-maxrate 15M',
+            '-bufsize 26M',
+            '-c:a aac',
+            '-b:a 160k',
+            '-fflags +genpts'
+          );
+        } else {
+          options.push('-c copy', '-reset_timestamps 1');
+          applyFilters = false;
+        }
+        break;
+      case 'enhanced-quality':
+        options.push(
+          '-c:v libx264',
+          '-preset slow',
+          '-b:v 77M',
+          '-maxrate 85M',
+          '-bufsize 154M',
+          '-c:a aac',
+          '-b:a 320k',
+          '-fflags +genpts'
+        );
+        break;
+      case 'high-quality':
+        options.push(
+          '-c:v libx264',
+          '-preset slow',
+          '-b:v 130M',
+          '-maxrate 150M',
+          '-bufsize 260M',
+          '-c:a aac',
+          '-b:a 320k',
+          '-fflags +genpts'
+        );
+        break;
+      case 'encode':
+      default:
+        options.push(
+          '-c:v libx264',
+          '-preset medium',
+          '-crf 18',
+          '-c:a aac',
+          '-b:a 192k',
+          '-fflags +genpts'
+        );
+        break;
+    }
+
+    if (applyFilters) {
+      const trimmedDuration = Math.min(duration, maxDuration);
+      command = command
+        .videoFilters(`trim=duration=${trimmedDuration},setpts=PTS-STARTPTS`)
+        .audioFilters(`atrim=duration=${trimmedDuration},asetpts=PTS-STARTPTS`);
+    }
+
+    command
+      .outputOptions(options)
+      .output(outputPath)
+      .on('end', resolve)
+      .on('error', reject)
+      .run();
+  });
+}
+
+async function clipSegment(fullVideoPath, outputPath, start, end, method, { minDuration = MIN_CLIP_DURATION_DEFAULT, maxDuration = MAX_CLIP_DURATION_DEFAULT } = {}) {
+  const originalDuration = Math.max(0, end - start);
+  let targetDuration = Math.min(originalDuration, maxDuration);
+
+  if (targetDuration < minDuration) {
+    return { skipped: true, reason: 'Duration below minimum' };
+  }
+
+  const attempts = [];
+  const initialForcePrecision = method !== 'copy';
+  attempts.push({ method, forcePrecision: initialForcePrecision });
+
+  if (method === 'copy') {
+    attempts.push({ method, forcePrecision: true });
+  }
+
+  // Final fallback: use enhanced-quality precise trim
+  attempts.push({ method: 'enhanced-quality', forcePrecision: true });
+
+  for (const attempt of attempts) {
+    try {
+      await createClipFile(fullVideoPath, outputPath, start, targetDuration, attempt.method, {
+        forcePrecision: attempt.forcePrecision,
+        maxDuration
+      });
+    } catch (error) {
+      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+      continue;
+    }
+
+    const actualDuration = await getVideoDurationInSeconds(outputPath);
+    if (actualDuration <= maxDuration + MAX_DURATION_TOLERANCE) {
+      const fileStats = fs.statSync(outputPath);
+      return {
+        skipped: false,
+        actualDuration,
+        durationRequested: targetDuration,
+        methodUsed: attempt.method,
+        fileSizeBytes: fileStats.size
+      };
+    }
+
+    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+
+    targetDuration = Math.min(targetDuration, maxDuration - 0.5);
+    if (targetDuration < minDuration) {
+      break;
+    }
+  }
+
+  return { skipped: true, reason: `Unable to clip within ${maxDuration}s window` };
+}
 
 const app = express();
 const PORT = 3001;
@@ -1717,9 +1868,8 @@ app.post('/api/analyze-motion', async (req, res) => {
     res.setHeader('Transfer-Encoding', 'chunked');
     
     // Spawn Python process
-    const pythonPath = 'python3';
     const scriptPath = path.join(__dirname, 'analyze_motion.py');
-    const python = spawn(pythonPath, [scriptPath, fullVideoPath]);
+    const python = spawnPython(scriptPath, [fullVideoPath]);
     
     // Handle stdout (progress updates and results)
     python.stdout.on('data', (data) => {
@@ -1813,12 +1963,11 @@ app.post('/api/smart-clip-video', async (req, res) => {
       message: '🔍 Analyzing video for motion...'
     }) + '\n');
     
-    const pythonPath = 'python3';
     const scriptPath = path.join(__dirname, 'analyze_motion.py');
     
     // Run motion analysis
     const analysisResult = await new Promise((resolve, reject) => {
-      const python = spawn(pythonPath, [scriptPath, fullVideoPath]);
+      const python = spawnPython(scriptPath, [fullVideoPath]);
       let outputData = '';
       let clips = null;
       
@@ -1927,103 +2076,43 @@ app.post('/api/smart-clip-video', async (req, res) => {
       }) + '\n');
       
       try {
-        // Use ffmpeg to clip
-        await new Promise((resolve, reject) => {
-          let ffmpegCmd;
-          
-          if (method === 'copy') {
-            // Fast method: Copy codec - preserves original quality perfectly
-            // Each clip starts at timestamp 0
-            ffmpegCmd = ffmpeg(fullVideoPath)
-              .seekInput(start)  // Seek to position first
-              .duration(duration)
-              .outputOptions([
-                '-c copy',
-                '-avoid_negative_ts make_zero',
-                '-map_metadata -1',   // Remove original metadata timestamps
-                '-reset_timestamps 1'  // Reset timestamps to start at 0
-              ]);
-          } else if (method === 'high-quality') {
-            // High-quality method: Match original bitrate (~130 Mbps)
-            // Each clip starts at timestamp 0
-            ffmpegCmd = ffmpeg(fullVideoPath)
-              .seekInput(start)
-              .duration(duration)
-              .outputOptions([
-                '-c:v libx264',
-                '-preset slow',        // Better quality
-                '-b:v 130M',           // Match original 130 Mbps bitrate
-                '-maxrate 150M',       // Allow peaks
-                '-bufsize 260M',       // Buffer for variable bitrate
-                '-c:a aac',
-                '-b:a 320k',           // Higher audio quality
-                '-avoid_negative_ts make_zero',
-                '-map_metadata -1',    // Remove original metadata
-                '-fflags +genpts'      // Generate presentation timestamps
-              ]);
-          } else {
-            // Standard encode method (lower quality, smaller files)
-            ffmpegCmd = ffmpeg(fullVideoPath)
-              .seekInput(start)
-              .duration(duration)
-              .outputOptions([
-                '-c:v libx264',
-                '-preset medium',
-                '-crf 18',
-                '-c:a aac',
-                '-b:a 192k',
-                '-avoid_negative_ts make_zero',
-                '-map_metadata -1',
-                '-fflags +genpts'
-              ]);
-          }
-          
-          ffmpegCmd
-            .output(outputPath)
-            .on('progress', (progress) => {
-              if (progress.percent && Math.round(progress.percent) % 20 === 0) {
-                res.write(JSON.stringify({
-                  type: 'encoding',
-                  current: i + 1,
-                  total: goodClips.length,
-                  percent: Math.round(progress.percent)
-                }) + '\n');
-              }
-            })
-            .on('end', resolve)
-            .on('error', reject)
-            .run();
-        });
-        
-        // Verify output
-        if (!fs.existsSync(outputPath)) {
-          throw new Error('Output file not created');
+        const clipResult = await clipSegment(fullVideoPath, outputPath, start, end, method, { minDuration, maxDuration });
+
+        if (clipResult.skipped) {
+          res.write(JSON.stringify({
+            type: 'warning',
+            clipNumber: i + 1,
+            message: clipResult.reason || 'Clip skipped'
+          }) + '\n');
+          continue;
         }
-        
-        const actualDuration = await getVideoDurationInSeconds(outputPath);
-        const outputSize = fs.statSync(outputPath).size;
-        
+
+        const { actualDuration, durationRequested, fileSizeBytes, methodUsed } = clipResult;
+        const fileSizeMB = fileSizeBytes / 1024 / 1024;
+
         successCount++;
         results.push({
           clipNumber: i + 1,
           inputStart: start,
-          inputEnd: end,
-          duration: duration.toFixed(2),
+          inputEnd: start + durationRequested,
+          requestedDuration: durationRequested.toFixed(2),
           actualDuration: actualDuration.toFixed(2),
           motionScore: motion_score.toFixed(2),
           fileName: outputFileName,
-          fileSize: (outputSize / 1024 / 1024).toFixed(2) + ' MB',
+          fileSize: fileSizeMB.toFixed(2) + ' MB',
+          methodUsed,
           path: outputPath
         });
-        
+
         res.write(JSON.stringify({
           type: 'success',
           clipNumber: i + 1,
           fileName: outputFileName,
-          duration: duration.toFixed(2),
+          requestedDuration: durationRequested.toFixed(2),
           actualDuration: actualDuration.toFixed(2),
           motionScore: motion_score.toFixed(2),
-          fileSize: (outputSize / 1024 / 1024).toFixed(2) + ' MB'
+          fileSize: fileSizeMB.toFixed(2) + ' MB',
+          method: methodUsed
         }) + '\n');
         
       } catch (error) {
@@ -2038,7 +2127,7 @@ app.post('/api/smart-clip-video', async (req, res) => {
     
     // Calculate statistics
     const totalOriginalDuration = await getVideoDurationInSeconds(fullVideoPath);
-    const totalClippedDuration = results.reduce((sum, r) => sum + parseFloat(r.duration), 0);
+    const totalClippedDuration = results.reduce((sum, r) => sum + (parseFloat(r.actualDuration) || 0), 0);
     const coveragePercent = ((totalClippedDuration / totalOriginalDuration) * 100).toFixed(1);
     const skippedPercent = (100 - parseFloat(coveragePercent)).toFixed(1);
     
@@ -2186,118 +2275,33 @@ app.post('/api/clip-video', async (req, res) => {
       }) + '\n');
       
       try {
-        // Use ffmpeg to clip the video
-        await new Promise((resolve, reject) => {
-          let ffmpegCmd;
-          
-          if (method === 'copy') {
-            // Fast method: Copy codec - preserves original quality perfectly
-            // Each clip starts at timestamp 0
-            ffmpegCmd = ffmpeg(fullVideoPath)
-              .seekInput(start)  // Seek to position first
-              .duration(duration)
-              .outputOptions([
-                '-c copy',
-                '-avoid_negative_ts make_zero',
-                '-map_metadata -1',   // Remove original metadata timestamps
-                '-reset_timestamps 1'  // Reset timestamps to start at 0
-              ]);
-          } else if (method === 'enhanced-quality') {
-            // Enhanced quality: Match manual workflow (77 Mbps like user's manual clips)
-            // Each clip starts at timestamp 0
-            ffmpegCmd = ffmpeg(fullVideoPath)
-              .seekInput(start)
-              .duration(duration)
-              .outputOptions([
-                '-c:v libx264',
-                '-preset slow',        // High quality encoding
-                '-b:v 77M',            // Match manual clips (77.4 Mbps)
-                '-maxrate 85M',        // Allow some peaks
-                '-bufsize 154M',       // 2x bitrate for buffer
-                '-c:a aac',
-                '-b:a 320k',           // High quality audio
-                '-avoid_negative_ts make_zero',
-                '-map_metadata -1',
-                '-fflags +genpts'
-              ]);
-          } else if (method === 'high-quality') {
-            // High-quality method: Match original bitrate (~130 Mbps)
-            // Each clip starts at timestamp 0
-            ffmpegCmd = ffmpeg(fullVideoPath)
-              .seekInput(start)
-              .duration(duration)
-              .outputOptions([
-                '-c:v libx264',
-                '-preset slow',        // Better quality
-                '-b:v 130M',           // Match original 130 Mbps bitrate
-                '-maxrate 150M',       // Allow peaks
-                '-bufsize 260M',       // Buffer for variable bitrate
-                '-c:a aac',
-                '-b:a 320k',           // Higher audio quality
-                '-avoid_negative_ts make_zero',
-                '-map_metadata -1',    // Remove original metadata
-                '-fflags +genpts'      // Generate presentation timestamps
-              ]);
-          } else {
-            // Standard encode method (lower quality, smaller files)
-            ffmpegCmd = ffmpeg(fullVideoPath)
-              .seekInput(start)
-              .duration(duration)
-              .outputOptions([
-                '-c:v libx264',
-                '-preset medium',
-                '-crf 18',
-                '-c:a aac',
-                '-b:a 192k',
-                '-avoid_negative_ts make_zero',
-                '-map_metadata -1',
-                '-fflags +genpts'
-              ]);
-          }
-          
-          ffmpegCmd
-            .output(outputPath)
-            .on('start', (commandLine) => {
-              console.log('FFmpeg command:', commandLine);
-            })
-            .on('progress', (progress) => {
-              if (progress.percent) {
-                res.write(JSON.stringify({
-                  type: 'encoding',
-                  current: i + 1,
-                  total: clips.length,
-                  percent: Math.round(progress.percent),
-                  timemark: progress.timemark
-                }) + '\n');
-              }
-            })
-            .on('end', () => {
-              resolve();
-            })
-            .on('error', (err) => {
-              reject(err);
-            })
-            .run();
+        const clipResult = await clipSegment(fullVideoPath, outputPath, start, end, method, {
+          minDuration: MIN_CLIP_DURATION_DEFAULT,
+          maxDuration: MAX_CLIP_DURATION_DEFAULT
         });
-        
-        // Verify output file was created
-        if (!fs.existsSync(outputPath)) {
-          throw new Error('Output file was not created');
+
+        if (clipResult.skipped) {
+          res.write(JSON.stringify({
+            type: 'warning',
+            clipNumber: i + 1,
+            message: clipResult.reason || 'Clip skipped'
+          }) + '\n');
+          continue;
         }
-        
-        // Get actual output duration
-        const actualDuration = await getVideoDurationInSeconds(outputPath);
-        const outputSize = fs.statSync(outputPath).size;
-        
+
+        const { actualDuration, durationRequested, fileSizeBytes, methodUsed } = clipResult;
+        const fileSizeMB = fileSizeBytes / 1024 / 1024;
+
         successCount++;
         results.push({
           clipNumber: i + 1,
           inputStart: start,
-          inputEnd: end,
-          requestedDuration: duration.toFixed(2),
+          inputEnd: start + durationRequested,
+          requestedDuration: durationRequested.toFixed(2),
           actualDuration: actualDuration.toFixed(2),
           fileName: outputFileName,
-          fileSize: (outputSize / 1024 / 1024).toFixed(2) + ' MB',
+          fileSize: fileSizeMB.toFixed(2) + ' MB',
+          methodUsed,
           path: outputPath
         });
         
@@ -2305,9 +2309,10 @@ app.post('/api/clip-video', async (req, res) => {
           type: 'success',
           clipNumber: i + 1,
           fileName: outputFileName,
-          requestedDuration: duration.toFixed(2),
+          requestedDuration: durationRequested.toFixed(2),
           actualDuration: actualDuration.toFixed(2),
-          fileSize: (outputSize / 1024 / 1024).toFixed(2) + ' MB'
+          fileSize: fileSizeMB.toFixed(2) + ' MB',
+          method: methodUsed
         }) + '\n');
         
       } catch (error) {
