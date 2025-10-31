@@ -5,8 +5,10 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import http from 'http';
-import ffmpeg from 'fluent-ffmpeg';
 import { spawn } from 'child_process';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -15,6 +17,19 @@ import { getVideoDurationInSeconds } from 'get-video-duration';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Configure ffmpeg & ffprobe paths (use bundled binaries for cross-platform support)
+if (ffmpegInstaller && ffmpegInstaller.path) {
+  ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+}
+
+if (ffprobeInstaller && ffprobeInstaller.path) {
+  ffmpeg.setFfprobePath(ffprobeInstaller.path);
+}
+
+const isWindows = process.platform === 'win32';
+const PYTHON_CMD = isWindows ? 'py' : 'python3';
+const pythonArgs = (scriptPath, ...args) => (isWindows ? ['-3', scriptPath, ...args] : [scriptPath, ...args]);
 
 const app = express();
 const PORT = 3001;
