@@ -35,29 +35,30 @@ const MAX_DURATION_TOLERANCE = 0.1;
 
 function createClipFile(fullVideoPath, outputPath, start, duration, method, { forcePrecision = false, maxDuration = MAX_CLIP_DURATION_DEFAULT } = {}) {
   return new Promise((resolve, reject) => {
+    const preciseMode = forcePrecision || method !== 'copy';
     let command = ffmpeg(fullVideoPath).seekInput(Number(start.toFixed(3)));
 
-    const durationBuffer = forcePrecision || method !== 'copy' ? Math.min(duration + 1, maxDuration + 2) : duration;
-    command = command.duration(durationBuffer);
+    if (preciseMode) {
+      const durationBuffer = Math.min(duration + 1, maxDuration + 2);
+      command = command.duration(durationBuffer);
+    }
 
     const options = ['-avoid_negative_ts make_zero', '-map_metadata -1'];
-    let applyFilters = forcePrecision || method !== 'copy';
+    let applyFilters = preciseMode;
 
     switch (method) {
       case 'copy':
-        if (forcePrecision) {
+        if (preciseMode) {
           options.push(
             '-c:v libx264',
             '-preset fast',
-            '-b:v 13M',
-            '-maxrate 15M',
-            '-bufsize 26M',
+            '-crf 18',
             '-c:a aac',
-            '-b:a 160k',
+            '-b:a 192k',
             '-fflags +genpts'
           );
         } else {
-          options.push('-c copy', '-reset_timestamps 1');
+          options.push('-c copy', '-t', duration.toFixed(3), '-reset_timestamps 1');
           applyFilters = false;
         }
         break;
@@ -103,6 +104,8 @@ function createClipFile(fullVideoPath, outputPath, start, duration, method, { fo
       command = command
         .videoFilters(`trim=duration=${trimmedDuration},setpts=PTS-STARTPTS`)
         .audioFilters(`atrim=duration=${trimmedDuration},asetpts=PTS-STARTPTS`);
+    } else {
+      command = command.duration(Math.min(duration, maxDuration));
     }
 
     command
@@ -168,14 +171,14 @@ async function clipSegment(fullVideoPath, outputPath, start, end, method, { minD
 }
 
 async function smartClipVideoTask(options, emit, context = {}) {
-  const {
-    fullVideoPath,
-    outputDir,
-    motionThreshold = 4.5,
-    minDuration = MIN_CLIP_DURATION_DEFAULT,
-    maxDuration = MAX_CLIP_DURATION_DEFAULT,
-    method = 'copy'
-  } = options;
+    const {
+      fullVideoPath,
+      outputDir,
+      motionThreshold = 4.5,
+      minDuration = MIN_CLIP_DURATION_DEFAULT,
+      maxDuration = MAX_CLIP_DURATION_DEFAULT,
+      method = 'copy'
+    } = options;
 
   const send = (payload) => {
     if (emit) {
@@ -2320,11 +2323,6 @@ app.post('/api/smart-clip-folder', async (req, res) => {
     for (const file of videoFiles) {
       const fullVideoPath = path.join(fullInputDir, file);
       const videoBaseName = path.basename(file, path.extname(file));
-      const videoOutputDir = path.join(resolvedOutputDir, videoBaseName);
-
-      if (!fs.existsSync(videoOutputDir)) {
-        fs.mkdirSync(videoOutputDir, { recursive: true });
-      }
 
       send({
         type: 'info',
@@ -2336,7 +2334,7 @@ app.post('/api/smart-clip-folder', async (req, res) => {
         const result = await smartClipVideoTask(
           {
             fullVideoPath,
-            outputDir: videoOutputDir,
+            outputDir: resolvedOutputDir,
             motionThreshold,
             minDuration,
             maxDuration,
@@ -2346,9 +2344,9 @@ app.post('/api/smart-clip-folder', async (req, res) => {
         );
 
         aggregated.processedVideos += 1;
-        aggregated.totalClips += result.summary.clipsCreated;
-        aggregated.totalOriginalDurationSeconds += result.summary.originalDurationSeconds || 0;
-        aggregated.totalClippedDurationSeconds += result.summary.clippedDurationSeconds || 0;
+        aggregated.totalClips += result.summary?.clipsCreated || 0;
+        aggregated.totalOriginalDurationSeconds += result.summary?.originalDurationSeconds || 0;
+        aggregated.totalClippedDurationSeconds += result.summary?.clippedDurationSeconds || 0;
 
         send({
           type: 'video_complete',
