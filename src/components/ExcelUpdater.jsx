@@ -4,6 +4,8 @@ import './ExcelUpdater.css';
 function ExcelUpdater() {
   const [folderPath, setFolderPath] = useState('');
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [outputFolderPath, setOutputFolderPath] = useState('');
+  const [selectedOutputFiles, setSelectedOutputFiles] = useState([]);
   const [isUpdating, setIsUpdating] = useState(false);
   const [serverOnline, setServerOnline] = useState(false);
   const [progress, setProgress] = useState({
@@ -17,7 +19,8 @@ function ExcelUpdater() {
     totalFiles: 0,
     updatedFiles: [],
     notFoundFiles: [],
-    errorFiles: []
+    errorFiles: [],
+    clipCounts: []
   });
   const [suggestedPaths, setSuggestedPaths] = useState([]);
 
@@ -76,12 +79,37 @@ function ExcelUpdater() {
     }
   };
 
+  const handleOutputFolderSelect = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length > 0) {
+      setSelectedOutputFiles(files);
+      const firstFile = files[0];
+      const fullPath = firstFile.webkitRelativePath || firstFile.name;
+      const pathParts = fullPath.split('/');
+      const folderName = pathParts[0];
+      const finalPath = 'public/' + folderName;
+      setOutputFolderPath(finalPath);
+
+      if (folderName !== 'Videos' && !folderName.startsWith('test')) {
+        alert('⚠️ WARNING: You selected a folder from outside the project!\n\n' +
+              'The Browse button only works for folders inside video_extractor_vite/public/\n\n' +
+              'For external folders:\n' +
+              '1. Clear the path field\n' +
+              '2. Type the FULL path manually\n' +
+              '3. Example: /Users/sanjayak/Dropbox/Videos\n\n' +
+              'Click OK to clear and try again.');
+        setOutputFolderPath('');
+        setSelectedOutputFiles([]);
+      }
+    }
+  };
+
   const handleUpdate = async () => {
     const finalPath = folderPath || 'public/Videos';
     
     setIsUpdating(true);
     setProgress({ current: 0, total: 0, currentFile: '', baseFilename: '', status: 'starting' });
-    setResults({ totalFiles: 0, updatedFiles: [], notFoundFiles: [], errorFiles: [] });
+    setResults({ totalFiles: 0, updatedFiles: [], notFoundFiles: [], errorFiles: [], clipCounts: [] });
 
     try {
       const response = await fetch('http://localhost:3001/api/update-excel-from-videos', {
@@ -89,7 +117,10 @@ function ExcelUpdater() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ folderPath: finalPath })
+        body: JSON.stringify({
+          folderPath: finalPath,
+          outputFolderPath: outputFolderPath || ''
+        })
       });
 
       if (!response.ok) {
@@ -144,10 +175,21 @@ function ExcelUpdater() {
                   message: data.message
                 }]
               }));
+            } else if (data.type === 'clipcount') {
+              setResults(prev => ({
+                ...prev,
+                clipCounts: [...prev.clipCounts, {
+                  baseFilename: data.baseFilename,
+                  count: data.count,
+                  status: data.status,
+                  message: data.message
+                }]
+              }));
             } else if (data.type === 'complete') {
               setResults(prev => ({
                 ...prev,
-                totalFiles: data.totalFiles
+                totalFiles: data.totalFiles,
+                clipCountsUpdated: data.clipCountsUpdated || 0
               }));
               setProgress(prev => ({ ...prev, status: 'complete' }));
             }
@@ -252,6 +294,50 @@ function ExcelUpdater() {
           )}
         </div>
 
+        <div className="input-group">
+          <label>
+            🎞️ Output Clips Folder
+            <span className="label-hint">(Optional: counts # of clips per base file)</span>
+          </label>
+          <div className="folder-selector">
+            <input
+              type="text"
+              className="folder-path-input"
+              placeholder="Enter output clips folder path"
+              value={outputFolderPath}
+              onChange={(e) => setOutputFolderPath(e.target.value)}
+              disabled={isUpdating}
+            />
+            <button
+              type="button"
+              className="select-folder-btn"
+              onClick={() => document.getElementById('outputFolderInput').click()}
+              disabled={isUpdating}
+              title="Browse public/ directory only"
+            >
+              📂 Browse
+            </button>
+            <input
+              id="outputFolderInput"
+              type="file"
+              webkitdirectory=""
+              directory=""
+              multiple
+              onChange={handleOutputFolderSelect}
+              disabled={isUpdating}
+              style={{ display: 'none' }}
+            />
+          </div>
+          {selectedOutputFiles.length > 0 && (
+            <div className="file-count-info">
+              <span className="file-count-badge">🎞️ {selectedOutputFiles.length} files detected</span>
+            </div>
+          )}
+          <small className="input-help">
+            Provide the folder containing generated clip files (e.g., *_fc-0000001.mp4). The tool will count clips per base name and update the Excel <strong># of Output Clips</strong> column.
+          </small>
+        </div>
+
         <button
           onClick={handleUpdate}
           disabled={isUpdating || !serverOnline}
@@ -335,6 +421,12 @@ function ExcelUpdater() {
                 <span className="stat-label">Errors:</span>
                 <span className="stat-value">{results.errorFiles.length}</span>
               </div>
+              {results.clipCounts?.length > 0 && (
+                <div className="stat-item clip-counts">
+                  <span className="stat-label">Clip Counts Updated:</span>
+                  <span className="stat-value">{results.clipCounts.length}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -385,6 +477,25 @@ function ExcelUpdater() {
                     <div className="result-info">
                       <span className="result-file">{item.file}</span>
                       <span className="result-error">{item.message}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Clip Counts */}
+          {results.clipCounts?.length > 0 && (
+            <div className="results-list-section clipcount-section">
+              <h3>🎞️ Clip Counts Updated ({results.clipCounts.length})</h3>
+              <div className="results-list">
+                {results.clipCounts.map((item, index) => (
+                  <div key={index} className={`result-item clipcount-item ${item.status === 'success' ? 'updated-item' : item.status === 'notfound' ? 'notfound-item' : 'error-item'}`}>
+                    <span className="result-icon">{item.status === 'success' ? '🎯' : item.status === 'notfound' ? '⚠️' : '❌'}</span>
+                    <div className="result-info">
+                      <span className="result-base">{item.baseFilename}</span>
+                      <span className="result-count">Clips: {item.count}</span>
+                      {item.message && <span className="result-message">{item.message}</span>}
                     </div>
                   </div>
                 ))}

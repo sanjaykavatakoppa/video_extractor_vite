@@ -980,6 +980,52 @@ function updateExcelStatusByFilename(baseFilename, status = 'Downloaded') {
   }
 }
 
+// Helper function: Update # of Output Clips column by base filename
+function updateExcelOutputClipsCount(baseFilename, clipCount = 0) {
+  try {
+    const workbook = XLSX.readFile(EXCEL_FILE_PATH);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+
+    const rowIndex = data.findIndex(r => r['File Name'] === baseFilename);
+
+    if (rowIndex === -1) {
+      return { success: false, message: `File name ${baseFilename} not found in Excel` };
+    }
+
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    let clipCountCol = -1;
+
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col });
+      const cell = worksheet[cellAddress];
+      if (cell && cell.v && cell.v.toString().includes('# of Output Clips')) {
+        clipCountCol = col;
+        break;
+      }
+    }
+
+    if (clipCountCol === -1) {
+      clipCountCol = range.e.c + 1;
+      const headerCell = XLSX.utils.encode_cell({ r: 0, c: clipCountCol });
+      worksheet[headerCell] = { v: '# of Output Clips', t: 's' };
+      range.e.c = clipCountCol;
+      worksheet['!ref'] = XLSX.utils.encode_range(range);
+    }
+
+    const statusCell = XLSX.utils.encode_cell({ r: rowIndex + 1, c: clipCountCol });
+    worksheet[statusCell] = { v: Number(clipCount) || 0, t: 'n' };
+
+    XLSX.writeFile(workbook, EXCEL_FILE_PATH);
+
+    return { success: true, message: `Updated ${baseFilename} clip count to ${clipCount}` };
+  } catch (error) {
+    console.error('Error updating clip count in Excel:', error);
+    return { success: false, message: error.message };
+  }
+}
+
 // Helper function: Get video metadata from JSON (NO ffprobe needed!)
 async function getVideoMetadataFromJson(baseFilename, videoFileName, apiResponsesFolder, videoPath = null) {
   try {
@@ -1490,7 +1536,7 @@ app.post('/api/check-video-duration', async (req, res) => {
 // Excel Update endpoint - Update Excel based on video filenames
 app.post('/api/update-excel-from-videos', async (req, res) => {
   try {
-    const { folderPath } = req.body;
+    const { folderPath, outputFolderPath } = req.body;
     
     if (!folderPath) {
       return res.status(400).json({ error: 'Folder path is required' });
@@ -1504,6 +1550,13 @@ app.post('/api/update-excel-from-videos', async (req, res) => {
     const fullFolderPath = path.isAbsolute(folderPath)
       ? folderPath
       : path.join(__dirname, folderPath);
+
+    let fullOutputFolderPath = null;
+    if (outputFolderPath && outputFolderPath.trim()) {
+      fullOutputFolderPath = path.isAbsolute(outputFolderPath)
+        ? outputFolderPath.trim()
+        : path.join(__dirname, outputFolderPath.trim());
+    }
     
     // Check if folder exists
     if (!fs.existsSync(fullFolderPath)) {
@@ -1532,6 +1585,9 @@ app.post('/api/update-excel-from-videos', async (req, res) => {
     let updatedCount = 0;
     let notFoundCount = 0;
     let errorCount = 0;
+    let clipCountsUpdated = 0;
+    let clipCountsNotFound = 0;
+    let clipCountsErrors = 0;
     
     for (let i = 0; i < videoFiles.length; i++) {
       const videoFile = videoFiles[i];
@@ -1591,13 +1647,87 @@ app.post('/api/update-excel-from-videos', async (req, res) => {
       }
     }
     
+    if (fullOutputFolderPath) {
+      try {
+        if (!fs.existsSync(fullOutputFolderPath)) {
+          res.write(JSON.stringify({
+            type: 'error',
+            message: `Output folder not found: ${outputFolderPath}`,
+            scope: 'output'
+          }) + '\n');
+        } else {
+          const clipCountsMap = new Map();
+          const stack = [fullOutputFolderPath];
+
+          while (stack.length > 0) {
+            const currentDir = stack.pop();
+            const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+
+            for (const entry of entries) {
+              const entryPath = path.join(currentDir, entry.name);
+              if (entry.isDirectory()) {
+                stack.push(entryPath);
+              } else if (entry.isFile() && /\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i.test(entry.name)) {
+                const base = extractBaseFilename(entry.name);
+                if (base) {
+                  clipCountsMap.set(base, (clipCountsMap.get(base) || 0) + 1);
+                }
+              }
+            }
+          }
+
+          if (clipCountsMap.size === 0) {
+            res.write(JSON.stringify({
+              type: 'clipcount',
+              baseFilename: 'N/A',
+              count: 0,
+              status: 'info',
+              message: 'No clip files found in output folder'
+            }) + '\n');
+          } else {
+            for (const [baseFilename, count] of clipCountsMap.entries()) {
+              const result = updateExcelOutputClipsCount(baseFilename, count);
+              if (result.success) {
+                clipCountsUpdated++;
+              } else if (result.message.includes('not found')) {
+                clipCountsNotFound++;
+              } else {
+                clipCountsErrors++;
+              }
+
+              res.write(JSON.stringify({
+                type: 'clipcount',
+                baseFilename,
+                count,
+                status: result.success ? 'success' : (result.message.includes('not found') ? 'notfound' : 'error'),
+                message: result.message
+              }) + '\n');
+            }
+          }
+        }
+      } catch (clipError) {
+        console.error('Error processing output clips folder:', clipError);
+        clipCountsErrors++;
+        res.write(JSON.stringify({
+          type: 'clipcount',
+          baseFilename: 'System',
+          count: 0,
+          status: 'error',
+          message: clipError.message
+        }) + '\n');
+      }
+    }
+
     // Send completion summary
     res.write(JSON.stringify({
       type: 'complete',
       totalFiles: videoFiles.length,
       updatedCount: updatedCount,
       notFoundCount: notFoundCount,
-      errorCount: errorCount
+      errorCount: errorCount,
+      clipCountsUpdated,
+      clipCountsNotFound,
+      clipCountsErrors
     }) + '\n');
     
     res.end();
