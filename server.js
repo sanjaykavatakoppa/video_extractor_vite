@@ -5,10 +5,10 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import http from 'http';
-import { spawn } from 'child_process';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
+import { spawn } from 'child_process';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -18,18 +18,16 @@ import { getVideoDurationInSeconds } from 'get-video-duration';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Configure ffmpeg & ffprobe paths (use bundled binaries for cross-platform support)
-if (ffmpegInstaller && ffmpegInstaller.path) {
-  ffmpeg.setFfmpegPath(ffmpegInstaller.path);
-}
-
-if (ffprobeInstaller && ffprobeInstaller.path) {
-  ffmpeg.setFfprobePath(ffprobeInstaller.path);
-}
-
 const isWindows = process.platform === 'win32';
-const PYTHON_CMD = isWindows ? 'py' : 'python3';
-const pythonArgs = (scriptPath, ...args) => (isWindows ? ['-3', scriptPath, ...args] : [scriptPath, ...args]);
+
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+ffmpeg.setFfprobePath(ffprobeInstaller.path);
+
+function spawnPython(scriptPath, args = []) {
+  const pythonCommand = isWindows ? 'py' : 'python3';
+  const pythonArgs = isWindows ? ['-3', scriptPath, ...args] : [scriptPath, ...args];
+  return spawn(pythonCommand, pythonArgs);
+}
 
 const app = express();
 const PORT = 3001;
@@ -1732,9 +1730,8 @@ app.post('/api/analyze-motion', async (req, res) => {
     res.setHeader('Transfer-Encoding', 'chunked');
     
     // Spawn Python process
-    const pythonPath = 'python3';
     const scriptPath = path.join(__dirname, 'analyze_motion.py');
-    const python = spawn(pythonPath, [scriptPath, fullVideoPath]);
+    const python = spawnPython(scriptPath, [fullVideoPath]);
     
     // Handle stdout (progress updates and results)
     python.stdout.on('data', (data) => {
@@ -1828,12 +1825,11 @@ app.post('/api/smart-clip-video', async (req, res) => {
       message: '🔍 Analyzing video for motion...'
     }) + '\n');
     
-    const pythonPath = 'python3';
     const scriptPath = path.join(__dirname, 'analyze_motion.py');
     
     // Run motion analysis
     const analysisResult = await new Promise((resolve, reject) => {
-      const python = spawn(pythonPath, [scriptPath, fullVideoPath]);
+      const python = spawnPython(scriptPath, [fullVideoPath]);
       let outputData = '';
       let clips = null;
       

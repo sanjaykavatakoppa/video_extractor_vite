@@ -1,9 +1,17 @@
 npm install
-
 npm run dev
+```
 
-If vite is not found than below command
+### Windows setup
 
- npm install -D vite @vitejs/plugin-react
+Run the automated script once to install Python, ffmpeg/ffprobe and required packages:
 
- npx vite
+```
+powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1
+```
+
+Then start everything:
+
+```
+npm run dev:all
+```
