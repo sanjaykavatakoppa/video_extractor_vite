@@ -14,6 +14,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { promisify } from 'util';
 import { getVideoDurationInSeconds } from 'get-video-duration';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2791,7 +2792,7 @@ app.get('/api/health', (req, res) => {
 
 // Get suggested folder paths (common locations)
 app.get('/api/suggested-paths', (req, res) => {
-  const homeDir = require('os').homedir();
+  const homeDir = os.homedir();
   const suggestedPaths = [];
   
   // Common video folder locations
