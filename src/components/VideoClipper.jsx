@@ -1,7 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import './VideoClipper.css';
 
 const VideoClipper = () => {
+  const [mode, setMode] = useState('folder');
+  const [inputFolder, setInputFolder] = useState('');
+  const [folderVideos, setFolderVideos] = useState([]);
   const [videoPath, setVideoPath] = useState('');
   const [videoInfo, setVideoInfo] = useState(null);
   const [clips, setClips] = useState([]);
@@ -13,9 +16,33 @@ const VideoClipper = () => {
   const [method, setMethod] = useState('copy'); // 'copy', 'high-quality', or 'encode'
   const [outputDir, setOutputDir] = useState('');
   const [motionThreshold, setMotionThreshold] = useState(4.5);  // Lowered to 4.5 for more clips
-  const [useSmartClipping, setUseSmartClipping] = useState(false);
+  const [useSmartClipping, setUseSmartClipping] = useState(true);
   const [outputQuality, setOutputQuality] = useState('enhanced'); // 'source' or 'enhanced' - default to enhanced
   const progressRef = useRef(null);
+  const isFolderMode = mode === 'folder';
+
+  useEffect(() => {
+    if (mode === 'folder') {
+      setUseSmartClipping(true);
+    }
+  }, [mode]);
+
+  const handleModeChange = (newMode) => {
+    setMode(newMode);
+    setProgress([]);
+    setResults(null);
+    setProcessing(false);
+
+    if (newMode === 'folder') {
+      setVideoPath('');
+      setVideoInfo(null);
+      setClips([]);
+    } else {
+      setFolderVideos([]);
+      setInputFolder('');
+      setUseSmartClipping(false);
+    }
+  };
 
   // Format seconds to HH:MM:SS
   const formatTime = (seconds) => {
@@ -65,6 +92,43 @@ const VideoClipper = () => {
       setProgress([{ type: 'error', message: `❌ Error: ${error.message}` }]);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const loadFolderVideos = async () => {
+    if (!inputFolder) {
+      alert('Please enter an input folder path');
+      return [];
+    }
+
+    setLoading(true);
+    setProgress([]);
+
+    try {
+      const response = await fetch('http://localhost:3001/api/list-folder-videos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderPath: inputFolder })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        const videos = data.videos || [];
+        setFolderVideos(videos);
+        setProgress([{ type: 'info', message: `📂 Loaded ${videos.length} video(s) from folder.` }]);
+        return videos;
+      }
+
+      setFolderVideos([]);
+      setProgress([{ type: 'error', message: `❌ ${data.error || 'Failed to load videos from folder'}` }]);
+      return [];
+    } catch (error) {
+      setFolderVideos([]);
+      setProgress([{ type: 'error', message: `❌ Error: ${error.message}` }]);
+      return [];
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -152,8 +216,118 @@ const VideoClipper = () => {
     return hours * 3600 + minutes * 60 + seconds + (frames / fps);
   };
 
+  const processFolder = async () => {
+    if (!inputFolder) {
+      alert('Please enter the original videos folder path');
+      return;
+    }
+
+    if (!outputDir) {
+      alert('Please enter the export/output folder path');
+      return;
+    }
+
+    if (!folderVideos || folderVideos.length === 0) {
+      const loaded = await loadFolderVideos();
+      if (!loaded || loaded.length === 0) {
+        return;
+      }
+    }
+
+    setProcessing(true);
+    setProgress([]);
+    setResults(null);
+
+    try {
+      const finalMethod = outputQuality === 'enhanced' ? 'enhanced-quality' : method;
+
+      const response = await fetch('http://localhost:3001/api/smart-clip-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          inputDir: inputFolder,
+          outputDir,
+          motionThreshold,
+          minDuration: 9,
+          maxDuration: 20,
+          method: finalMethod
+        })
+      });
+
+      if (!response.body) {
+        throw new Error('No response body received from server');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n').filter(line => line.trim());
+
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line);
+            setProgress(prev => [...prev, data]);
+
+            if (data.type === 'video_complete') {
+              setResults(prev => {
+                const base = prev && prev.mode === 'folder'
+                  ? prev
+                  : { mode: 'folder', videos: [], summary: null, outputDir };
+                const existing = base.videos.filter(item => item.videoPath !== data.videoPath);
+                return {
+                  mode: 'folder',
+                  videos: [
+                    ...existing,
+                    {
+                      videoPath: data.videoPath,
+                      outputDir: data.outputDir,
+                      summary: data.summary,
+                      results: data.results
+                    }
+                  ],
+                  summary: base.summary,
+                  outputDir: base.outputDir || data.outputDir
+                };
+              });
+            } else if (data.type === 'complete') {
+              setResults(prev => {
+                const videos = prev && prev.mode === 'folder' ? prev.videos : [];
+                return {
+                  mode: 'folder',
+                  videos,
+                  summary: data.summary,
+                  outputDir: data.outputDir
+                };
+              });
+            }
+
+            if (progressRef.current) {
+              progressRef.current.scrollTop = progressRef.current.scrollHeight;
+            }
+          } catch (e) {
+            console.error('Failed to parse line:', line);
+          }
+        }
+      }
+    } catch (error) {
+      setProgress(prev => [...prev, { type: 'error', message: `❌ Error: ${error.message}` }]);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   // Process video clips
   const processClips = async () => {
+    if (mode === 'folder') {
+      await processFolder();
+      return;
+    }
+
     if (!videoPath) {
       alert('Please enter a video path');
       return;
@@ -169,10 +343,7 @@ const VideoClipper = () => {
     setResults(null);
 
     try {
-      // Determine method based on quality selection
       const finalMethod = outputQuality === 'enhanced' ? 'enhanced-quality' : method;
-      
-      // Use smart clipping or manual clipping
       const endpoint = useSmartClipping ? '/api/smart-clip-video' : '/api/clip-video';
       const requestBody = useSmartClipping 
         ? {
@@ -196,6 +367,10 @@ const VideoClipper = () => {
         body: JSON.stringify(requestBody)
       });
 
+      if (!response.body) {
+        throw new Error('No response body received from server');
+      }
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
@@ -203,7 +378,7 @@ const VideoClipper = () => {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
+        const chunk = decoder.decode(value, { stream: true });
         const lines = chunk.split('\n').filter(line => line.trim());
 
         for (const line of lines) {
@@ -213,10 +388,14 @@ const VideoClipper = () => {
             setProgress(prev => [...prev, data]);
             
             if (data.type === 'complete') {
-              setResults(data);
+              setResults({
+                mode: 'single',
+                summary: data.summary,
+                outputDir: data.outputDir,
+                clips: data.results
+              });
             }
 
-            // Auto-scroll to bottom
             if (progressRef.current) {
               progressRef.current.scrollTop = progressRef.current.scrollHeight;
             }
@@ -237,6 +416,9 @@ const VideoClipper = () => {
     setClips([]);
     setProgress([]);
     setResults(null);
+    if (mode === 'folder') {
+      setFolderVideos([]);
+    }
   };
 
   return (
@@ -247,61 +429,125 @@ const VideoClipper = () => {
         Supports both fast copying (no re-encoding) and frame-accurate encoding.
       </p>
 
+      <div className="mode-toggle">
+        <label>
+          <input
+            type="radio"
+            value="folder"
+            checked={isFolderMode}
+            onChange={() => handleModeChange('folder')}
+          />
+          {' '}Batch Folder Mode
+        </label>
+        <label>
+          <input
+            type="radio"
+            value="single"
+            checked={!isFolderMode}
+            onChange={() => handleModeChange('single')}
+          />
+          {' '}Single Video Mode
+        </label>
+      </div>
+
       {/* Video Input Section */}
       <div className="input-section">
         <h3>📹 Video Input</h3>
         
-        <div className="input-group">
-          <label>Video Path:</label>
-          <input
-            type="text"
-            value={videoPath}
-            onChange={(e) => setVideoPath(e.target.value)}
-            placeholder="e.g., public/downloaded-videos/31638097/1PWF92_EK4Q2TFQNB_fc.mov"
-            className="video-path-input"
-          />
-          <button 
-            onClick={analyzeVideo} 
-            disabled={analyzing || !videoPath}
-            className="btn-analyze"
-          >
-            {analyzing ? '⏳ Analyzing...' : '🔍 Analyze Video'}
-          </button>
-        </div>
-
-        {videoInfo && (
-          <div className="video-info-card">
-            <h4>📊 Video Information</h4>
-            <div className="info-grid">
-              <div><strong>File:</strong> {videoInfo.fileName}</div>
-              <div><strong>Size:</strong> {videoInfo.fileSize}</div>
-              <div><strong>Duration:</strong> {videoInfo.duration}</div>
-              <div><strong>Bitrate:</strong> {videoInfo.bitrate}</div>
-              {videoInfo.video && (
-                <>
-                  <div><strong>Resolution:</strong> {videoInfo.video.resolution}</div>
-                  <div><strong>FPS:</strong> {videoInfo.video.fps.toFixed(2)}</div>
-                  <div><strong>Video Codec:</strong> {videoInfo.video.codec}</div>
-                  <div><strong>Video Bitrate:</strong> {videoInfo.video.bitrate}</div>
-                </>
-              )}
-              {videoInfo.audio && (
-                <>
-                  <div><strong>Audio Codec:</strong> {videoInfo.audio.codec}</div>
-                  <div><strong>Audio Bitrate:</strong> {videoInfo.audio.bitrate}</div>
-                </>
-              )}
+        {isFolderMode ? (
+          <>
+            <div className="input-group">
+              <label>Input Folder (Original Videos):</label>
+              <input
+                type="text"
+                value={inputFolder}
+                onChange={(e) => setInputFolder(e.target.value)}
+                placeholder="e.g., C:/Projects/videos/originals"
+                className="video-path-input"
+              />
+              <div className="folder-actions">
+                <button
+                  onClick={loadFolderVideos}
+                  disabled={loading || !inputFolder}
+                  className="btn-analyze"
+                >
+                  {loading ? '⏳ Loading...' : '📂 Load Videos'}
+                </button>
+                {folderVideos.length > 0 && (
+                  <span className="folder-count">Found {folderVideos.length} video(s)</span>
+                )}
+              </div>
             </div>
-          </div>
+
+            {folderVideos.length > 0 && (
+              <div className="folder-video-list">
+                <h4>🎞️ Videos in Folder</h4>
+                <ul>
+                  {folderVideos.map((video) => (
+                    <li key={video.fullPath}>
+                      📹 {video.fileName}
+                      {video.durationSeconds ? ` (${formatTime(video.durationSeconds)})` : ' (duration unknown)'}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="input-group">
+              <label>Video Path:</label>
+              <input
+                type="text"
+                value={videoPath}
+                onChange={(e) => setVideoPath(e.target.value)}
+                placeholder="e.g., public/downloaded-videos/31638097/1PWF92_EK4Q2TFQNB_fc.mov"
+                className="video-path-input"
+              />
+              <button 
+                onClick={analyzeVideo} 
+                disabled={analyzing || !videoPath}
+                className="btn-analyze"
+              >
+                {analyzing ? '⏳ Analyzing...' : '🔍 Analyze Video'}
+              </button>
+            </div>
+
+            {videoInfo && (
+              <div className="video-info-card">
+                <h4>📊 Video Information</h4>
+                <div className="info-grid">
+                  <div><strong>File:</strong> {videoInfo.fileName}</div>
+                  <div><strong>Size:</strong> {videoInfo.fileSize}</div>
+                  <div><strong>Duration:</strong> {videoInfo.duration}</div>
+                  <div><strong>Bitrate:</strong> {videoInfo.bitrate}</div>
+                  {videoInfo.video && (
+                    <>
+                      <div><strong>Resolution:</strong> {videoInfo.video.resolution}</div>
+                      <div><strong>FPS:</strong> {videoInfo.video.fps.toFixed(2)}</div>
+                      <div><strong>Video Codec:</strong> {videoInfo.video.codec}</div>
+                      <div><strong>Video Bitrate:</strong> {videoInfo.video.bitrate}</div>
+                    </>
+                  )}
+                  {videoInfo.audio && (
+                    <>
+                      <div><strong>Audio Codec:</strong> {videoInfo.audio.codec}</div>
+                      <div><strong>Audio Bitrate:</strong> {videoInfo.audio.bitrate}</div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         <div className="input-group">
-          <label>Output Directory (optional):</label>
+          <label>{isFolderMode ? 'Export Folder (required):' : 'Output Directory (optional):'}</label>
           <input
             type="text"
             value={outputDir}
             onChange={(e) => setOutputDir(e.target.value)}
-            placeholder="Leave empty to use same directory as input video"
+            placeholder={isFolderMode ? 'e.g., D:/Exports/Highlights' : 'Leave empty to use same directory as input video'}
             className="output-dir-input"
           />
         </div>
@@ -349,18 +595,20 @@ const VideoClipper = () => {
           )}
         </div>
 
-        <div className="input-group">
-          <label>
-            <input 
-              type="checkbox" 
-              checked={useSmartClipping} 
-              onChange={(e) => setUseSmartClipping(e.target.checked)}
-            />
-            {' '}Use Smart Motion-Based Clipping (Skip static/low-motion segments)
-          </label>
-        </div>
+        {!isFolderMode && (
+          <div className="input-group">
+            <label>
+              <input 
+                type="checkbox" 
+                checked={useSmartClipping} 
+                onChange={(e) => setUseSmartClipping(e.target.checked)}
+              />
+              {' '}Use Smart Motion-Based Clipping (Skip static/low-motion segments)
+            </label>
+          </div>
+        )}
 
-        {useSmartClipping && (
+        {(useSmartClipping || isFolderMode) && (
           <div className="input-group smart-clipping-options">
             <label>Motion Threshold: {motionThreshold.toFixed(1)}</label>
             <input 
@@ -385,11 +633,17 @@ const VideoClipper = () => {
               💡 Lower = includes mild motion. Higher = only intense action. 
               <strong>4.5</strong> recommended (balances quality & quantity).
             </p>
+            {isFolderMode && (
+              <p className="threshold-hint">
+                🤖 Smart motion-based clipping is always enabled when processing a folder.
+              </p>
+            )}
           </div>
         )}
       </div>
 
       {/* Clips Section */}
+      {!isFolderMode && (
       <div className="clips-section">
         <div className="clips-header">
           <h3>✂️ Clips ({clips.length})</h3>
@@ -474,22 +728,30 @@ const VideoClipper = () => {
           </div>
         )}
       </div>
+      )}
 
       {/* Process Button */}
-      {(clips.length > 0 || useSmartClipping) && (
+      {(
+        isFolderMode ||
+        (!isFolderMode && (clips.length > 0 || useSmartClipping))
+      ) && (
         <div className="process-section">
           <button
             onClick={processClips}
-            disabled={processing || (!useSmartClipping && clips.length === 0) || !videoPath}
+            disabled={processing || (isFolderMode ? (!inputFolder || !outputDir || loading) : (!useSmartClipping && clips.length === 0) || !videoPath)}
             className="btn-process"
           >
-            {processing ? '⏳ Processing...' : 
-             useSmartClipping ? '🤖 Smart Clip Video (Auto-detect Motion)' :
-             `🚀 Process ${clips.length} Clip(s)`}
+            {processing
+              ? '⏳ Processing...'
+              : isFolderMode
+                ? '🤖 Smart Clip Entire Folder'
+                : useSmartClipping
+                  ? '🤖 Smart Clip Video (Auto-detect Motion)'
+                  : `🚀 Process ${clips.length} Clip(s)`}
           </button>
-          {useSmartClipping && (
+          {(useSmartClipping || isFolderMode) && (
             <p className="smart-clip-hint">
-              🎯 Smart clipping will analyze the video, detect motion, and create clips only from high-action segments (skipping static parts).
+              🎯 Smart clipping analyzes each video, detects motion, and creates clips only from high-action segments (skipping static parts).
             </p>
           )}
         </div>
@@ -500,84 +762,189 @@ const VideoClipper = () => {
         <div className="progress-section">
           <h3>📋 Progress Log</h3>
           <div className="progress-log" ref={progressRef}>
-            {progress.map((item, index) => (
-              <div key={index} className={`log-item log-${item.type}`}>
-                {item.type === 'info' && <span>ℹ️ {item.message}</span>}
-                {item.type === 'progress' && (
-                  <span>
-                    ⏳ Processing clip {item.current}/{item.total}: {item.outputFile}
-                    {item.clip && ` (${item.clip.start}s → ${item.clip.end}s, ${item.clip.duration}s)`}
-                  </span>
-                )}
-                {item.type === 'encoding' && (
-                  <span>
-                    🎬 Encoding clip {item.current}/{item.total}: {item.percent}% 
-                    {item.timemark && ` - ${item.timemark}`}
-                  </span>
-                )}
-                {item.type === 'success' && (
-                  <span>
-                    ✅ Clip {item.clipNumber}: {item.fileName} 
-                    ({item.actualDuration}s, {item.fileSize})
-                  </span>
-                )}
-                {item.type === 'error' && (
-                  <span>❌ Error: {item.message}</span>
-                )}
-                {item.type === 'warning' && (
-                  <span>⚠️ Warning: {item.message}</span>
-                )}
-                {item.type === 'complete' && (
-                  <div className="complete-summary">
-                    <h4>🎉 Processing Complete!</h4>
-                    <p>✅ Success: {item.successCount} | ❌ Errors: {item.errorCount} | 📁 Total: {item.totalClips}</p>
-                    <p>📂 Output: {item.outputDir}</p>
-                  </div>
-                )}
-              </div>
-            ))}
+            {progress.map((item, index) => {
+              const videoLabel = item.videoPath ? `[${item.videoPath.split(/[\\/]/).pop()}] ` : '';
+              return (
+                <div key={index} className={`log-item log-${item.type}`}>
+                  {item.type === 'info' && <span>ℹ️ {videoLabel}{item.message}</span>}
+                  {item.type === 'progress' && (
+                    <span>
+                      ⏳ {videoLabel}Processing clip {item.current}/{item.total}: {item.outputFile}
+                      {item.clip && ` (${item.clip.start}s → ${item.clip.end}s, ${item.clip.duration}s)`}
+                    </span>
+                  )}
+                  {item.type === 'encoding' && (
+                    <span>
+                      🎬 {videoLabel}Encoding clip {item.current}/{item.total}: {item.percent}% 
+                      {item.timemark && ` - ${item.timemark}`}
+                    </span>
+                  )}
+                  {item.type === 'success' && (
+                    <span>
+                      ✅ {videoLabel}Clip {item.clipNumber}: {item.fileName} 
+                      ({item.actualDuration}s, {item.fileSize})
+                    </span>
+                  )}
+                  {item.type === 'error' && (
+                    <span>❌ {videoLabel}{item.message}</span>
+                  )}
+                  {item.type === 'warning' && (
+                    <span>⚠️ {videoLabel}{item.message}</span>
+                  )}
+                  {item.type === 'complete' && (
+                    <div className="complete-summary">
+                      <h4>🎉 Processing Complete!</h4>
+                      {item.summary ? (
+                        <>
+                          {item.summary.processedVideos !== undefined && item.summary.totalVideos !== undefined && (
+                            <p>🎬 Videos processed: {item.summary.processedVideos}/{item.summary.totalVideos}</p>
+                          )}
+                          {item.summary.failedVideos !== undefined && (
+                            <p>⚠️ Failed: {item.summary.failedVideos}</p>
+                          )}
+                          {item.summary.clipsCreated !== undefined && item.summary.clipsCreated !== null && (
+                            <p>✅ Clips created: {item.summary.clipsCreated}</p>
+                          )}
+                          {item.summary.totalClips !== undefined && (
+                            <p>✅ Clips created: {item.summary.totalClips}</p>
+                          )}
+                          {item.summary.coverage && (
+                            <p>🕒 Coverage: {item.summary.coverage}</p>
+                          )}
+                        </>
+                      ) : (
+                        <p>✅ Success: {item.successCount || 0} | ❌ Errors: {item.errorCount || 0} | 📁 Total: {item.totalClips || 0}</p>
+                      )}
+                      {item.outputDir && <p>📂 Output: {item.outputDir}</p>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
       {/* Results Section */}
-      {results && results.results && results.results.length > 0 && (
+      {results && (
         <div className="results-section">
           <h3>📊 Results Summary</h3>
-          <table className="results-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>File Name</th>
-                <th>Start</th>
-                <th>End</th>
-                <th>Requested</th>
-                <th>Actual</th>
-                <th>Size</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {results.results.map((result, index) => (
-                <tr key={index}>
-                  <td>{result.clipNumber}</td>
-                  <td className="filename">{result.fileName}</td>
-                  <td>{result.inputStart.toFixed(2)}s</td>
-                  <td>{result.inputEnd.toFixed(2)}s</td>
-                  <td>{result.requestedDuration}s</td>
-                  <td className={
-                    Math.abs(parseFloat(result.actualDuration) - parseFloat(result.requestedDuration)) > 0.1
-                      ? 'duration-warning'
-                      : ''
-                  }>
-                    {result.actualDuration}s
-                  </td>
-                  <td>{result.fileSize}</td>
-                  <td>✅</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {results.mode === 'folder' ? (
+            <>
+              {results.summary && (
+                <div className="complete-summary">
+                  <h4>📦 Folder Summary</h4>
+                  <p>🎬 Videos processed: {results.summary.processedVideos}/{results.summary.totalVideos}</p>
+                  <p>✅ Clips created: {results.summary.totalClips}</p>
+                  <p>🕒 Coverage: {results.summary.coverage}</p>
+                  <p>📂 Output folder: {results.outputDir}</p>
+                </div>
+              )}
+
+              {results.videos && results.videos.length > 0 ? (
+                results.videos.map((video, idx) => {
+                  const fileLabel = video.videoPath ? video.videoPath.split(/[\\/]/).pop() : `Video ${idx + 1}`;
+                  return (
+                    <div key={video.videoPath || idx} className="folder-video-summary">
+                      <h4>🎞️ {fileLabel}</h4>
+                      {video.summary && (
+                        <p className="video-summary-line">
+                          Clips: {video.summary.clipsCreated} | Duration: {video.summary.clippedDuration}
+                        </p>
+                      )}
+                      {video.results && video.results.length > 0 ? (
+                        <table className="results-table">
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>File Name</th>
+                              <th>Start</th>
+                              <th>End</th>
+                              <th>Requested</th>
+                              <th>Actual</th>
+                              <th>Size</th>
+                              <th>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {video.results.map((clipResult, clipIndex) => (
+                              <tr key={clipIndex}>
+                                <td>{clipResult.clipNumber}</td>
+                                <td className="filename">{clipResult.fileName}</td>
+                                <td>{clipResult.inputStart.toFixed(2)}s</td>
+                                <td>{clipResult.inputEnd.toFixed(2)}s</td>
+                                <td>{clipResult.requestedDuration}s</td>
+                                <td className={
+                                  Math.abs(parseFloat(clipResult.actualDuration) - parseFloat(clipResult.requestedDuration)) > 0.1
+                                    ? 'duration-warning'
+                                    : ''
+                                }>
+                                  {clipResult.actualDuration}s
+                                </td>
+                                <td>{clipResult.fileSize}</td>
+                                <td>✅</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <p>No clips generated for this video.</p>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <p>No processed videos yet.</p>
+              )}
+            </>
+          ) : (
+            results.clips && results.clips.length > 0 && (
+              <>
+              {results.summary && (
+                <div className="complete-summary">
+                  <h4>🎉 Processing Complete!</h4>
+                  <p>✅ Clips created: {results.summary.clipsCreated} | 🎬 Segments analyzed: {results.summary.totalClipsAnalyzed}</p>
+                  <p>🕒 Coverage: {results.summary.coverage}</p>
+                  <p>📂 Output folder: {results.outputDir}</p>
+                </div>
+              )}
+              <table className="results-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>File Name</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Requested</th>
+                    <th>Actual</th>
+                    <th>Size</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.clips.map((result, index) => (
+                    <tr key={index}>
+                      <td>{result.clipNumber}</td>
+                      <td className="filename">{result.fileName}</td>
+                      <td>{result.inputStart.toFixed(2)}s</td>
+                      <td>{result.inputEnd.toFixed(2)}s</td>
+                      <td>{result.requestedDuration}s</td>
+                      <td className={
+                        Math.abs(parseFloat(result.actualDuration) - parseFloat(result.requestedDuration)) > 0.1
+                          ? 'duration-warning'
+                          : ''
+                      }>
+                        {result.actualDuration}s
+                      </td>
+                      <td>{result.fileSize}</td>
+                      <td>✅</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </>
+            )
+          )}
         </div>
       )}
     </div>

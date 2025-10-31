@@ -15,3 +15,5 @@ Then start everything:
 ```
 npm run dev:all
 ```
+
+Once the UI opens, use **Batch Folder Mode** to select the original videos folder and the export folder. Click **Smart Clip Entire Folder** to process every video automatically.

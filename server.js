@@ -166,6 +166,197 @@ async function clipSegment(fullVideoPath, outputPath, start, end, method, { minD
 
   return { skipped: true, reason: `Unable to clip within ${maxDuration}s window` };
 }
+
+async function smartClipVideoTask(options, emit, context = {}) {
+  const {
+    fullVideoPath,
+    outputDir,
+    motionThreshold = 4.5,
+    minDuration = MIN_CLIP_DURATION_DEFAULT,
+    maxDuration = MAX_CLIP_DURATION_DEFAULT,
+    method = 'copy'
+  } = options;
+
+  const send = (payload) => {
+    if (emit) {
+      emit({ ...payload, ...context });
+    }
+  };
+
+  send({ type: 'info', message: '🎬 Starting intelligent motion-based analysis...' });
+  send({ type: 'progress', stage: 'analysis', message: '🔍 Analyzing video for motion...' });
+
+  const scriptPath = path.join(__dirname, 'analyze_motion.py');
+
+  const analysisResult = await new Promise((resolve, reject) => {
+    const python = spawnPython(scriptPath, [fullVideoPath]);
+    let buffer = '';
+    let clips = null;
+
+    python.stdout.on('data', (data) => {
+      buffer += data.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      lines
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .forEach((line) => {
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.type === 'progress') {
+              send({ type: 'analysis_progress', message: parsed.message });
+            } else if (parsed.type === 'complete') {
+              clips = parsed.clips;
+            }
+          } catch (error) {
+            // Ignore parse errors for partial lines
+          }
+        });
+    });
+
+    python.on('close', (code) => {
+      if (code === 0 && clips) {
+        resolve(clips);
+      } else {
+        reject(new Error('Motion analysis failed'));
+      }
+    });
+
+    python.on('error', (error) => {
+      reject(error);
+    });
+  });
+
+  if (!analysisResult || analysisResult.length === 0) {
+    throw new Error('No motion clips found in video. Video may be static or low quality.');
+  }
+
+  const goodClips = analysisResult.filter((clip) => clip.motion_score >= motionThreshold);
+
+  send({
+    type: 'analysis_complete',
+    totalClips: analysisResult.length,
+    goodClips: goodClips.length,
+    skippedClips: analysisResult.length - goodClips.length,
+    motionThreshold
+  });
+
+  if (goodClips.length === 0) {
+    throw new Error(`No clips met motion threshold of ${motionThreshold}. Try lowering the threshold.`);
+  }
+
+  send({
+    type: 'info',
+    message: `✂️ Creating ${goodClips.length} clips from high-motion segments...`
+  });
+
+  const videoDir = path.dirname(fullVideoPath);
+  const finalOutputDir = outputDir || videoDir;
+
+  if (!fs.existsSync(finalOutputDir)) {
+    fs.mkdirSync(finalOutputDir, { recursive: true });
+  }
+
+  const videoBaseName = path.basename(fullVideoPath, path.extname(fullVideoPath));
+  let successCount = 0;
+  let errorCount = 0;
+  const results = [];
+
+  for (let i = 0; i < goodClips.length; i++) {
+    const clip = goodClips[i];
+    const { start, end, duration, motion_score } = clip;
+
+    const clipNumber = String(i + 1).padStart(7, '0');
+    const outputFileName = `${videoBaseName}-${clipNumber}.mp4`;
+    const outputPath = path.join(finalOutputDir, outputFileName);
+
+    send({
+      type: 'progress',
+      current: i + 1,
+      total: goodClips.length,
+      clip: { start, end, duration, motion_score },
+      outputFile: outputFileName
+    });
+
+    try {
+      const clipResult = await clipSegment(fullVideoPath, outputPath, start, end, method, { minDuration, maxDuration });
+
+      if (clipResult.skipped) {
+        send({
+          type: 'warning',
+          clipNumber: i + 1,
+          message: clipResult.reason || 'Clip skipped'
+        });
+        continue;
+      }
+
+      const { actualDuration, durationRequested, fileSizeBytes, methodUsed } = clipResult;
+      const fileSizeMB = fileSizeBytes / 1024 / 1024;
+
+      successCount++;
+      results.push({
+        clipNumber: i + 1,
+        inputStart: start,
+        inputEnd: start + durationRequested,
+        requestedDuration: durationRequested.toFixed(2),
+        actualDuration: actualDuration.toFixed(2),
+        motionScore: motion_score.toFixed(2),
+        fileName: outputFileName,
+        fileSize: fileSizeMB.toFixed(2) + ' MB',
+        methodUsed,
+        path: outputPath
+      });
+
+      send({
+        type: 'success',
+        clipNumber: i + 1,
+        fileName: outputFileName,
+        requestedDuration: durationRequested.toFixed(2),
+        actualDuration: actualDuration.toFixed(2),
+        motionScore: motion_score.toFixed(2),
+        fileSize: fileSizeMB.toFixed(2) + ' MB',
+        method: methodUsed
+      });
+    } catch (error) {
+      errorCount++;
+      send({
+        type: 'error',
+        clipNumber: i + 1,
+        message: error.message
+      });
+    }
+  }
+
+  const totalOriginalDuration = await getVideoDurationInSeconds(fullVideoPath);
+  const totalClippedDuration = results.reduce((sum, r) => sum + (parseFloat(r.actualDuration) || 0), 0);
+  const coveragePercent = totalOriginalDuration > 0
+    ? ((totalClippedDuration / totalOriginalDuration) * 100).toFixed(1)
+    : '0.0';
+  const skippedPercent = (100 - parseFloat(coveragePercent)).toFixed(1);
+
+  const summary = {
+    originalDurationSeconds: totalOriginalDuration,
+    clippedDurationSeconds: totalClippedDuration,
+    coveragePercent: parseFloat(coveragePercent),
+    skippedPercent: parseFloat(skippedPercent),
+    totalClipsAnalyzed: analysisResult.length,
+    clipsCreated: successCount,
+    clipsSkipped: analysisResult.length - goodClips.length,
+    errors: errorCount,
+    originalDuration: `${totalOriginalDuration.toFixed(2)}s`,
+    clippedDuration: `${totalClippedDuration.toFixed(2)}s`,
+    coverage: `${coveragePercent}%`,
+    skipped: `${skippedPercent}%`
+  };
+
+  return {
+    summary,
+    results,
+    outputDir: finalOutputDir,
+    videoPath: fullVideoPath
+  };
+}
 const app = express();
 const PORT = 3001;
 
@@ -1915,32 +2106,82 @@ app.post('/api/analyze-motion', async (req, res) => {
   }
 });
 
+app.post('/api/list-folder-videos', async (req, res) => {
+  try {
+    const { folderPath } = req.body;
+
+    if (!folderPath) {
+      return res.status(400).json({ success: false, error: 'Folder path is required' });
+    }
+
+    const fullFolderPath = path.isAbsolute(folderPath)
+      ? folderPath
+      : path.join(__dirname, folderPath);
+
+    if (!fs.existsSync(fullFolderPath) || !fs.statSync(fullFolderPath).isDirectory()) {
+      return res.status(404).json({ success: false, error: `Folder not found: ${folderPath}` });
+    }
+
+    const videoFiles = fs.readdirSync(fullFolderPath).filter(file => {
+      return /\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i.test(file);
+    });
+
+    const videos = await Promise.all(videoFiles.map(async (file) => {
+      const fullPath = path.join(fullFolderPath, file);
+      const stats = fs.statSync(fullPath);
+      let durationSeconds = null;
+
+      try {
+        const seconds = await getVideoDurationInSeconds(fullPath);
+        durationSeconds = Number(seconds.toFixed(2));
+      } catch (error) {
+        durationSeconds = null;
+      }
+
+      return {
+        fileName: file,
+        baseName: path.basename(file, path.extname(file)),
+        fullPath,
+        sizeBytes: stats.size,
+        durationSeconds,
+        modifiedTime: stats.mtime
+      };
+    }));
+
+    res.json({
+      success: true,
+      folder: fullFolderPath,
+      videoCount: videos.length,
+      videos
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Smart Motion-Based Clipping - Analyze & Clip in one go
 app.post('/api/smart-clip-video', async (req, res) => {
   try {
-    const { 
-      videoPath, 
-      outputDir, 
-      motionThreshold = 4.5,  // Lowered to 4.5 to match more clips
-      minDuration = 9,
-      maxDuration = 20,
-      method = 'copy'  // Default to 'copy' for perfect quality
+    const {
+      videoPath,
+      outputDir,
+      motionThreshold = 4.5,
+      minDuration = MIN_CLIP_DURATION_DEFAULT,
+      maxDuration = MAX_CLIP_DURATION_DEFAULT,
+      method = 'copy'
     } = req.body;
-    
+
     if (!videoPath) {
       return res.status(400).json({ error: 'Video path is required' });
     }
-    
-    // Set up streaming response
+
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Transfer-Encoding', 'chunked');
-    
-    // Handle both absolute and relative paths
+
     const fullVideoPath = path.isAbsolute(videoPath)
       ? videoPath
       : path.join(__dirname, videoPath);
-    
-    // Check if video exists
+
     if (!fs.existsSync(fullVideoPath)) {
       res.write(JSON.stringify({
         type: 'error',
@@ -1949,208 +2190,206 @@ app.post('/api/smart-clip-video', async (req, res) => {
       res.end();
       return;
     }
-    
+
+    const finalOutputDir = outputDir
+      ? (path.isAbsolute(outputDir) ? outputDir : path.join(__dirname, outputDir))
+      : path.dirname(fullVideoPath);
+
+    const send = (payload) => {
+      res.write(JSON.stringify(payload) + '\n');
+    };
+
+    try {
+      const result = await smartClipVideoTask(
+        {
+          fullVideoPath,
+          outputDir: finalOutputDir,
+          motionThreshold,
+          minDuration,
+          maxDuration,
+          method
+        },
+        send
+      );
+
+      send({
+        type: 'complete',
+        summary: result.summary,
+        outputDir: result.outputDir,
+        results: result.results
+      });
+    } catch (taskError) {
+      send({ type: 'error', message: taskError.message });
+    }
+
+    res.end();
+  } catch (error) {
     res.write(JSON.stringify({
-      type: 'info',
-      message: '🎬 Starting intelligent motion-based analysis...'
+      type: 'error',
+      message: error.message,
+      stack: error.stack
     }) + '\n');
-    
-    // Step 1: Analyze video for motion
-    res.write(JSON.stringify({
-      type: 'progress',
-      stage: 'analysis',
-      message: '🔍 Analyzing video for motion...'
-    }) + '\n');
-    
-    const scriptPath = path.join(__dirname, 'analyze_motion.py');
-    
-    // Run motion analysis
-    const analysisResult = await new Promise((resolve, reject) => {
-      const python = spawnPython(scriptPath, [fullVideoPath]);
-      let outputData = '';
-      let clips = null;
-      
-      python.stdout.on('data', (data) => {
-        outputData += data.toString();
-        const lines = outputData.split('\n').filter(line => line.trim());
-        
-        for (const line of lines) {
-          try {
-            const parsed = JSON.parse(line);
-            
-            if (parsed.type === 'progress') {
-              res.write(JSON.stringify({
-                type: 'analysis_progress',
-                message: parsed.message
-              }) + '\n');
-            } else if (parsed.type === 'complete') {
-              clips = parsed.clips;
-            }
-          } catch (e) {
-            // Continue parsing
-          }
-        }
-      });
-      
-      python.on('close', (code) => {
-        if (code === 0 && clips) {
-          resolve(clips);
-        } else {
-          reject(new Error('Motion analysis failed'));
-        }
-      });
-      
-      python.on('error', (error) => {
-        reject(error);
-      });
-    });
-    
-    if (!analysisResult || analysisResult.length === 0) {
+    res.end();
+  }
+});
+
+app.post('/api/smart-clip-folder', async (req, res) => {
+  try {
+    const {
+      inputDir,
+      outputDir,
+      motionThreshold = 4.5,
+      minDuration = MIN_CLIP_DURATION_DEFAULT,
+      maxDuration = MAX_CLIP_DURATION_DEFAULT,
+      method = 'copy'
+    } = req.body;
+
+    if (!inputDir) {
+      res.status(400).json({ error: 'Input folder is required' });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    const fullInputDir = path.isAbsolute(inputDir)
+      ? inputDir
+      : path.join(__dirname, inputDir);
+
+    if (!fs.existsSync(fullInputDir) || !fs.statSync(fullInputDir).isDirectory()) {
       res.write(JSON.stringify({
         type: 'error',
-        message: 'No motion clips found in video. Video may be static or low quality.'
+        message: `Input folder not found: ${inputDir}`
       }) + '\n');
       res.end();
       return;
     }
-    
-    // Filter clips by motion threshold
-    const goodClips = analysisResult.filter(clip => clip.motion_score >= motionThreshold);
-    
-    res.write(JSON.stringify({
-      type: 'analysis_complete',
-      totalClips: analysisResult.length,
-      goodClips: goodClips.length,
-      skippedClips: analysisResult.length - goodClips.length,
-      motionThreshold: motionThreshold
-    }) + '\n');
-    
-    if (goodClips.length === 0) {
-      res.write(JSON.stringify({
-        type: 'warning',
-        message: `No clips met motion threshold of ${motionThreshold}. Try lowering the threshold.`
-      }) + '\n');
-      res.end();
-      return;
-    }
-    
-    // Step 2: Create clips from motion segments
-    res.write(JSON.stringify({
-      type: 'info',
-      message: `✂️ Creating ${goodClips.length} clips from high-motion segments...`
-    }) + '\n');
-    
-    // Determine output directory
-    const videoDir = path.dirname(fullVideoPath);
-    const finalOutputDir = outputDir 
+
+    const resolvedOutputDir = outputDir
       ? (path.isAbsolute(outputDir) ? outputDir : path.join(__dirname, outputDir))
-      : videoDir;
-    
-    // Create output directory if needed
-    if (!fs.existsSync(finalOutputDir)) {
-      fs.mkdirSync(finalOutputDir, { recursive: true });
+      : path.join(fullInputDir, 'smart-clips');
+
+    if (!fs.existsSync(resolvedOutputDir)) {
+      fs.mkdirSync(resolvedOutputDir, { recursive: true });
     }
-    
-    const videoBaseName = path.basename(fullVideoPath, path.extname(fullVideoPath));
-    let successCount = 0;
-    let errorCount = 0;
-    const results = [];
-    
-    // Process each good clip
-    for (let i = 0; i < goodClips.length; i++) {
-      const clip = goodClips[i];
-      const { start, end, duration, motion_score } = clip;
-      
-      // Generate output filename
-      const clipNumber = String(i + 1).padStart(7, '0');
-      const outputFileName = `${videoBaseName}-${clipNumber}.mp4`;
-      const outputPath = path.join(finalOutputDir, outputFileName);
-      
-      res.write(JSON.stringify({
-        type: 'progress',
-        current: i + 1,
-        total: goodClips.length,
-        clip: { start, end, duration, motion_score },
-        outputFile: outputFileName
-      }) + '\n');
-      
+
+    const videoFiles = fs.readdirSync(fullInputDir).filter(file => {
+      return /\.(mp4|mov|avi|mkv|wmv|flv|webm)$/i.test(file);
+    });
+
+    const send = (payload) => {
+      res.write(JSON.stringify(payload) + '\n');
+    };
+
+    if (videoFiles.length === 0) {
+      send({
+        type: 'warning',
+        message: 'No video files found in the selected folder.'
+      });
+      send({
+        type: 'complete',
+        summary: {
+          totalVideos: 0,
+          processedVideos: 0,
+          failedVideos: 0,
+          totalClips: 0,
+          originalDuration: '0.00s',
+          clippedDuration: '0.00s',
+          coverage: '0.0%'
+        },
+        outputDir: resolvedOutputDir
+      });
+      res.end();
+      return;
+    }
+
+    send({
+      type: 'info',
+      message: `📁 Processing ${videoFiles.length} video(s) from folder.`
+    });
+
+    const aggregated = {
+      totalVideos: videoFiles.length,
+      processedVideos: 0,
+      failedVideos: 0,
+      totalClips: 0,
+      totalOriginalDurationSeconds: 0,
+      totalClippedDurationSeconds: 0
+    };
+
+    for (const file of videoFiles) {
+      const fullVideoPath = path.join(fullInputDir, file);
+      const videoBaseName = path.basename(file, path.extname(file));
+      const videoOutputDir = path.join(resolvedOutputDir, videoBaseName);
+
+      if (!fs.existsSync(videoOutputDir)) {
+        fs.mkdirSync(videoOutputDir, { recursive: true });
+      }
+
+      send({
+        type: 'info',
+        videoPath: fullVideoPath,
+        message: `🚀 Processing ${file}`
+      });
+
       try {
-        const clipResult = await clipSegment(fullVideoPath, outputPath, start, end, method, { minDuration, maxDuration });
+        const result = await smartClipVideoTask(
+          {
+            fullVideoPath,
+            outputDir: videoOutputDir,
+            motionThreshold,
+            minDuration,
+            maxDuration,
+            method
+          },
+          (payload) => send({ ...payload, videoPath: fullVideoPath })
+        );
 
-        if (clipResult.skipped) {
-          res.write(JSON.stringify({
-            type: 'warning',
-            clipNumber: i + 1,
-            message: clipResult.reason || 'Clip skipped'
-          }) + '\n');
-          continue;
-        }
+        aggregated.processedVideos += 1;
+        aggregated.totalClips += result.summary.clipsCreated;
+        aggregated.totalOriginalDurationSeconds += result.summary.originalDurationSeconds || 0;
+        aggregated.totalClippedDurationSeconds += result.summary.clippedDurationSeconds || 0;
 
-        const { actualDuration, durationRequested, fileSizeBytes, methodUsed } = clipResult;
-        const fileSizeMB = fileSizeBytes / 1024 / 1024;
-
-        successCount++;
-        results.push({
-          clipNumber: i + 1,
-          inputStart: start,
-          inputEnd: start + durationRequested,
-          requestedDuration: durationRequested.toFixed(2),
-          actualDuration: actualDuration.toFixed(2),
-          motionScore: motion_score.toFixed(2),
-          fileName: outputFileName,
-          fileSize: fileSizeMB.toFixed(2) + ' MB',
-          methodUsed,
-          path: outputPath
+        send({
+          type: 'video_complete',
+          videoPath: fullVideoPath,
+          outputDir: result.outputDir,
+          summary: result.summary,
+          results: result.results
         });
-
-        res.write(JSON.stringify({
-          type: 'success',
-          clipNumber: i + 1,
-          fileName: outputFileName,
-          requestedDuration: durationRequested.toFixed(2),
-          actualDuration: actualDuration.toFixed(2),
-          motionScore: motion_score.toFixed(2),
-          fileSize: fileSizeMB.toFixed(2) + ' MB',
-          method: methodUsed
-        }) + '\n');
-        
       } catch (error) {
-        errorCount++;
-        res.write(JSON.stringify({
+        aggregated.failedVideos += 1;
+        send({
           type: 'error',
-          clipNumber: i + 1,
+          videoPath: fullVideoPath,
           message: error.message
-        }) + '\n');
+        });
       }
     }
-    
-    // Calculate statistics
-    const totalOriginalDuration = await getVideoDurationInSeconds(fullVideoPath);
-    const totalClippedDuration = results.reduce((sum, r) => sum + (parseFloat(r.actualDuration) || 0), 0);
-    const coveragePercent = ((totalClippedDuration / totalOriginalDuration) * 100).toFixed(1);
-    const skippedPercent = (100 - parseFloat(coveragePercent)).toFixed(1);
-    
-    // Send completion summary
-    res.write(JSON.stringify({
+
+    const coveragePercent = aggregated.totalOriginalDurationSeconds > 0
+      ? ((aggregated.totalClippedDurationSeconds / aggregated.totalOriginalDurationSeconds) * 100).toFixed(1)
+      : '0.0';
+
+    send({
       type: 'complete',
       summary: {
-        originalDuration: totalOriginalDuration.toFixed(2) + 's',
-        clippedDuration: totalClippedDuration.toFixed(2) + 's',
-        coverage: coveragePercent + '%',
-        skipped: skippedPercent + '%',
-        totalClipsAnalyzed: analysisResult.length,
-        clipsCreated: successCount,
-        clipsSkipped: analysisResult.length - goodClips.length,
-        errors: errorCount
+        totalVideos: aggregated.totalVideos,
+        processedVideos: aggregated.processedVideos,
+        failedVideos: aggregated.failedVideos,
+        totalClips: aggregated.totalClips,
+        originalDurationSeconds: aggregated.totalOriginalDurationSeconds,
+        clippedDurationSeconds: aggregated.totalClippedDurationSeconds,
+        coveragePercent: parseFloat(coveragePercent),
+        originalDuration: `${aggregated.totalOriginalDurationSeconds.toFixed(2)}s`,
+        clippedDuration: `${aggregated.totalClippedDurationSeconds.toFixed(2)}s`,
+        coverage: `${coveragePercent}%`
       },
-      outputDir: finalOutputDir,
-      results: results
-    }) + '\n');
-    
+      outputDir: resolvedOutputDir
+    });
+
     res.end();
-    
   } catch (error) {
-    console.error('Smart clipping error:', error);
     res.write(JSON.stringify({
       type: 'error',
       message: error.message,
