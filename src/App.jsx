@@ -13,6 +13,7 @@ import XmlDurationChecker from './components/XmlDurationChecker';
 import VideoDurationChecker from './components/VideoDurationChecker';
 import ExcelUpdater from './components/ExcelUpdater';
 import VideoClipper from './components/VideoClipper';
+import S3Uploader from './components/S3Uploader';
 import { processVideoBatch, createZipFile, downloadZip, getVideoInfo } from './utils/videoUtils';
 import './App.css';
 
@@ -168,6 +169,12 @@ function App() {
             📄 Generate XML
           </button>
           <button 
+            className={`mode-btn ${processingMode === 's3upload' ? 'active' : ''}`}
+            onClick={() => setProcessingMode('s3upload')}
+          >
+            ☁️ Upload to S3
+          </button>
+          <button 
             className={`mode-btn ${processingMode === 'motion' ? 'active' : ''}`}
             onClick={() => setProcessingMode('motion')}
           >
@@ -219,6 +226,8 @@ function App() {
           <MotionAnalyzer />
         ) : processingMode === 'xmlgenerate' ? (
           <XmlGenerator />
+        ) : processingMode === 's3upload' ? (
+          <S3Uploader />
         ) : processingMode === 'download' ? (
           <VideoDownloader />
         ) : processingMode === 'single' ? (

@@ -15,14 +15,129 @@ import { dirname } from 'path';
 import { promisify } from 'util';
 import { getVideoDurationInSeconds } from 'get-video-duration';
 import os from 'os';
+import dotenv from 'dotenv';
+import { S3Client } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+dotenv.config();
 
 const isWindows = process.platform === 'win32';
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 ffmpeg.setFfprobePath(ffprobeInstaller.path);
+
+const TEMP_S3_UPLOAD_DIR = path.join(os.tmpdir(), 'video-extractor-s3-uploads');
+if (!fs.existsSync(TEMP_S3_UPLOAD_DIR)) {
+  fs.mkdirSync(TEMP_S3_UPLOAD_DIR, { recursive: true });
+}
+
+const AWS_REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION;
+const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET;
+const AWS_S3_PREFIX = process.env.AWS_S3_PREFIX || '';
+const AWS_S3_PUBLIC_BASE_URL = process.env.AWS_S3_PUBLIC_BASE_URL || '';
+const AWS_S3_ENDPOINT = process.env.AWS_S3_ENDPOINT || '';
+const AWS_S3_FORCE_PATH_STYLE = (process.env.AWS_S3_FORCE_PATH_STYLE || '').toLowerCase() === 'true';
+const AWS_S3_MAX_FILE_SIZE_MB = parseInt(process.env.AWS_S3_MAX_FILE_SIZE_MB || '2048', 10);
+
+let s3Client = null;
+if (AWS_REGION) {
+  const s3Config = {
+    region: AWS_REGION
+  };
+
+  if (AWS_S3_ENDPOINT) {
+    s3Config.endpoint = AWS_S3_ENDPOINT;
+  }
+
+  if (AWS_S3_FORCE_PATH_STYLE) {
+    s3Config.forcePathStyle = true;
+  }
+
+  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    s3Config.credentials = {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+    };
+  }
+
+  s3Client = new S3Client(s3Config);
+} else {
+  console.warn('AWS_REGION is not set. S3 upload endpoint will be disabled.');
+}
+
+function sanitizePathSegment(segment) {
+  return segment
+    .replace(/^\.+/, '')
+    .replace(/[\\:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '-');
+}
+
+function normalizeRelativePath(relativePath = '') {
+  const trimmed = relativePath.replace(/^([./\\]+)/, '');
+  const parts = trimmed.split(/[/\\]+/).filter(Boolean);
+  const sanitized = parts
+    .map(part => sanitizePathSegment(part))
+    .filter(Boolean);
+
+  return sanitized.join('/');
+}
+
+function buildS3Key(relativePath, userPrefix = '', fallbackName = '') {
+  const cleanedRelativePath = normalizeRelativePath(relativePath);
+  const cleanedUserPrefix = normalizeRelativePath(userPrefix);
+  const cleanedDefaultPrefix = normalizeRelativePath(AWS_S3_PREFIX);
+
+  const segments = [cleanedDefaultPrefix, cleanedUserPrefix, cleanedRelativePath]
+    .filter(Boolean);
+
+  if (segments.length === 0) {
+    const fallbackSegment = normalizeRelativePath(fallbackName) || 'upload';
+    const defaultPrefix = cleanedDefaultPrefix || cleanedUserPrefix;
+    return [defaultPrefix, fallbackSegment].filter(Boolean).join('/');
+  }
+
+  return segments.join('/');
+}
+
+function buildPublicUrl(key) {
+  if (!key) return '';
+  if (AWS_S3_PUBLIC_BASE_URL) {
+    const base = AWS_S3_PUBLIC_BASE_URL.endsWith('/')
+      ? AWS_S3_PUBLIC_BASE_URL.slice(0, -1)
+      : AWS_S3_PUBLIC_BASE_URL;
+    return `${base}/${encodeURI(key)}`;
+  }
+
+  if (!AWS_S3_BUCKET || !AWS_REGION) {
+    return '';
+  }
+
+  return `https://${AWS_S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${encodeURI(key)}`;
+}
+
+async function uploadFileToS3({ filePath, contentType, key, metadata = {} }) {
+  if (!s3Client || !AWS_S3_BUCKET) {
+    throw new Error('S3 client is not configured. Set AWS_REGION and AWS_S3_BUCKET to enable uploads.');
+  }
+
+  const fileStream = fs.createReadStream(filePath);
+
+  const upload = new Upload({
+    client: s3Client,
+    params: {
+      Bucket: AWS_S3_BUCKET,
+      Key: key,
+      Body: fileStream,
+      ContentType: contentType,
+      Metadata: metadata
+    }
+  });
+
+  return upload.done();
+}
 
 function spawnPython(scriptPath, args = []) {
   const pythonCommand = isWindows ? 'py' : 'python3';
@@ -368,6 +483,22 @@ const PORT = 3001;
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 } // 50MB max per file
+});
+
+const s3Upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, TEMP_S3_UPLOAD_DIR);
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+      const safeName = sanitizePathSegment(file.originalname || 'upload');
+      cb(null, `${uniqueSuffix}-${safeName}`);
+    }
+  }),
+  limits: {
+    fileSize: AWS_S3_MAX_FILE_SIZE_MB * 1024 * 1024
+  }
 });
 
 app.use(cors());
@@ -2985,6 +3116,78 @@ app.post('/api/validate-files', async (req, res) => {
       error: 'Validation failed', 
       message: error.message,
       stack: error.stack
+    });
+  }
+});
+
+app.post('/api/s3/upload', s3Upload.single('file'), async (req, res) => {
+  if (!s3Client || !AWS_S3_BUCKET || !AWS_REGION) {
+    return res.status(503).json({
+      success: false,
+      error: 'S3 is not configured. Set AWS_REGION and AWS_S3_BUCKET to enable uploads.'
+    });
+  }
+
+  const uploadedFile = req.file;
+
+  if (!uploadedFile) {
+    return res.status(400).json({
+      success: false,
+      error: 'No file received. Ensure the form field name is "file".'
+    });
+  }
+
+  const { relativePath = '', prefix = '', rootFolder = '' } = req.body || {};
+  const includeRoot = ((req.body?.includeRoot ?? '').toString().toLowerCase() === 'true');
+  const cleanedPrefix = typeof prefix === 'string' ? prefix : '';
+  const effectiveRelativePath = relativePath || uploadedFile.originalname || uploadedFile.filename;
+  const requestPrefix = cleanedPrefix || (includeRoot ? rootFolder : '');
+  const startTime = Date.now();
+
+  try {
+    const key = buildS3Key(effectiveRelativePath, requestPrefix, uploadedFile.originalname || uploadedFile.filename);
+    const uploadResult = await uploadFileToS3({
+      filePath: uploadedFile.path,
+      contentType: uploadedFile.mimetype || 'application/octet-stream',
+      key,
+      metadata: {
+        original_filename: uploadedFile.originalname || '',
+        uploaded_by: 'video-metadata-app'
+      }
+    });
+
+    const durationMs = Date.now() - startTime;
+    const url = buildPublicUrl(key);
+
+    try {
+      await fs.promises.unlink(uploadedFile.path);
+    } catch (cleanupError) {
+      console.warn('Failed to remove temporary upload file:', cleanupError.message);
+    }
+
+    res.json({
+      success: true,
+      key,
+      url,
+      size: uploadedFile.size,
+      relativePath: effectiveRelativePath,
+      prefix: requestPrefix,
+      durationMs,
+      etag: uploadResult?.ETag || undefined
+    });
+  } catch (error) {
+    console.error('S3 upload failed:', error);
+    try {
+      if (uploadedFile?.path) {
+        await fs.promises.unlink(uploadedFile.path);
+      }
+    } catch (cleanupError) {
+      console.warn('Failed to remove temporary upload file after error:', cleanupError.message);
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Upload failed'
     });
   }
 });
