@@ -39,3 +39,4 @@ public/video.xlsx
 *.wmv
 *.flv
 *.webm
+.env
